@@ -1,0 +1,22 @@
+# DVC pipeline definition for data versioning
+# Tracks training dataset iterations as Role 1 updates them
+
+stages:
+  pull_data:
+    cmd: dvc pull
+    deps:
+      - data/raw
+    outs:
+      - data/processed
+
+  train:
+    cmd: python -m role2_ml_modeling.training.train
+    deps:
+      - data/processed
+      - role2_ml_modeling/training/train.py
+      - role2_ml_modeling/features/feature_engineering.py
+    outs:
+      - models/model.pkl
+    metrics:
+      - metrics.json:
+          cache: false

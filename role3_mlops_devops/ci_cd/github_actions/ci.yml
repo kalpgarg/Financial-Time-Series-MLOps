@@ -1,0 +1,47 @@
+# GitHub Actions CI/CD workflow
+# Triggers on push to main or pull requests
+# Runs tests, lints, builds Docker image, and optionally deploys
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r role1_data_engineering/requirements.txt
+          pip install -r role2_ml_modeling/requirements.txt
+          pip install -r role3_mlops_devops/requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        run: pytest --tb=short -q
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -f role3_mlops_devops/docker/Dockerfile -t fints-api:latest .
+
+      # TODO: Push to container registry (GHCR / DockerHub / ECR)
+      # - name: Push to registry
+      #   run: docker push ...

@@ -1,0 +1,8 @@
+# Role 1 – Data Engineering Lead dependencies
+kafka-python>=2.0.2
+pyspark>=3.5.0
+apache-airflow>=2.8.0
+feedparser>=6.0.0
+requests>=2.31.0
+pandas>=2.1.0
+pyarrow>=14.0.0

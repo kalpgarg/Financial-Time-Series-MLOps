@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ── Project-specific ──────────────────────────────────────────────────────────
+# Model artifacts (tracked via DVC / MLflow, not Git)
+models/*.pkl
+models/*.pt
+models/*.pth
+models/*.onnx
+!models/create_dummy_model.py
+!models/.gitkeep
+
+# Data (tracked via DVC)
+data/raw/
+data/processed/
+*.dvc
+/dvc.lock
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Airflow
+airflow/logs/
+airflow/*.db
+airflow/*.cfg

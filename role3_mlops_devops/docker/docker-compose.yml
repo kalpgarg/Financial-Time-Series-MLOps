@@ -1,6 +1,105 @@
 version: "3.9"
 
+networks:
+  fints-net:
+    driver: bridge
+
 services:
+  # ── Data Infrastructure ──────────────────────────────────────────────────
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: fints_zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - fints-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: fints_kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    depends_on:
+      - zookeeper
+    networks:
+      - fints-net
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: fints_kafka_init
+    depends_on:
+      - kafka
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Waiting for Kafka to be ready...' &&
+      cub kafka-ready -b kafka:29092 1 60 &&
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 --topic news_features &&
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 --topic market_features &&
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 --topic execution_signals &&
+      echo 'Topics created successfully.'
+      "
+    networks:
+      - fints-net
+
+  local_postgres:
+    image: postgres:16
+    container_name: fints_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: fints
+      POSTGRES_USER: fints_user
+      POSTGRES_PASSWORD: fints_pass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - fints-net
+
+  # ── Visualization / Admin UIs ───────────────────────────────────────────
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: fints_kafka_ui
+    ports:
+      - "8085:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local-mlops
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+    depends_on:
+      - kafka
+    networks:
+      - fints-net
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: fints_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@quant.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - local_postgres
+    networks:
+      - fints-net
+
+  # ── Application Services ─────────────────────────────────────────────────
+
   api:
     build:
       context: ../..
@@ -10,10 +109,18 @@ services:
     environment:
       - MODEL_PATH=models/model.pkl
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - DATABASE_URL=postgresql://fints_user:fints_pass@local_postgres:5432/fints
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     volumes:
       - ../../models:/app/models
     depends_on:
       - prometheus
+      - local_postgres
+      - kafka
+    networks:
+      - fints-net
+
+  # ── Monitoring ───────────────────────────────────────────────────────────
 
   prometheus:
     image: prom/prometheus:latest
@@ -21,6 +128,8 @@ services:
       - "9090:9090"
     volumes:
       - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - fints-net
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.12.0
@@ -30,6 +139,8 @@ services:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:
       - elasticsearch
+    networks:
+      - fints-net
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
@@ -38,3 +149,9 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
+    networks:
+      - fints-net
+
+volumes:
+  pgdata:
+  pgadmin_data:

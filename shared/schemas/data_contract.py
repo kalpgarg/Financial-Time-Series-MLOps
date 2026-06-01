@@ -33,6 +33,7 @@ class HeadlineRecord:
     published_at: str              # ISO-8601 datetime
     source: str                    # e.g. "reuters", "yahoo_finance"
     headline: str                  # cleaned headline text
+    author: Optional[str] = None   # author of the article
     body_snippet: Optional[str] = None  # first 500 chars of article body
 
 

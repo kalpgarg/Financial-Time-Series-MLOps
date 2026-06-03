@@ -240,3 +240,5 @@ mlartifacts/
 airflow/logs/
 airflow/*.db
 airflow/*.cfg
+
+*.DS_Store

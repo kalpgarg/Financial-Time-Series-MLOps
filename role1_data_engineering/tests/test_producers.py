@@ -21,8 +21,8 @@ from role1_data_engineering.kafka.producers.price_producer import (
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
-SAMPLE_PRICES_CSV = os.path.join(PROJECT_ROOT, "data", "day1_sample", "sample_prices.csv")
-SAMPLE_HEADLINES_CSV = os.path.join(PROJECT_ROOT, "data", "day1_sample", "sample_headlines.csv")
+SAMPLE_PRICES_CSV = os.path.join(PROJECT_ROOT, "data", "ohlc_data", "sample_prices.csv")
+SAMPLE_HEADLINES_CSV = os.path.join(PROJECT_ROOT, "data", "stock_news", "headlines.csv")
 
 HEADLINE_REQUIRED_KEYS = {"headline_id", "symbol", "headline"}
 PRICE_REQUIRED_KEYS = {"symbol", "date", "open", "high", "low", "close", "volume"}

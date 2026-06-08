@@ -6,10 +6,10 @@ This script is invoked by Airflow at 9:00 AM IST, after the scraper finishes.
 
 Usage:
     # Full mode (requires a running Kafka broker)
-    python -m role1_data_engineering.kafka.producers.headline_producer --csv-path data/scraped/headlines_20260530_0830.csv
+    python -m role1_data_engineering.kafka.producers.headline_producer --csv-path data/stock_news/headlines.csv
 
     # Dry-run mode (prints messages to stdout, no Kafka needed)
-    python -m role1_data_engineering.kafka.producers.headline_producer --csv-path data/scraped/headlines_20260530_0830.csv --dry-run
+    python -m role1_data_engineering.kafka.producers.headline_producer --csv-path data/stock_news/headlines.csv --dry-run
 """
 
 import argparse

@@ -16,7 +16,6 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -30,6 +29,7 @@ from shared.config import (
     KAFKA_BOOTSTRAP_SERVERS,
     KAFKA_TOPIC_MARKET_FEATURES,
     STOCK_LIST_CSV_PATH,
+    now_local,
 )
 
 logging.basicConfig(
@@ -43,7 +43,7 @@ logger = logging.getLogger("price_producer")
 UPSTOX_API_BASE = "https://api.upstox.com/v2"
 UPSTOX_ACCESS_TOKEN = None  # Set via env var or OAuth flow
 
-SAMPLE_PRICES_CSV = str(PROJECT_ROOT / "data" / "day1_sample" / "sample_prices.csv")
+SAMPLE_PRICES_CSV = str(PROJECT_ROOT / "data" / "ohlc_data" / "sample_prices.csv")
 
 
 def _get_kafka_producer():
@@ -88,7 +88,7 @@ def load_sample_prices(csv_path: str) -> list[dict]:
             "close": float(row["close"]),
             "volume": int(row["volume"]),
             "adjusted_close": float(row["adjusted_close"]) if pd.notna(row.get("adjusted_close")) else None,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": now_local().isoformat(),
         }
         records.append(record)
     return records

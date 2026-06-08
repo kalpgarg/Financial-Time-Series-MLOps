@@ -20,7 +20,6 @@ class PriceRecord:
     low: float
     close: float
     volume: int
-    adjusted_close: Optional[float] = None
 
 
 # ── Schema: Clean News/Headline Data (Role 1 → Role 2) ──────────────────────

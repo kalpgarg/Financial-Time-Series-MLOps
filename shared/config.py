@@ -4,6 +4,13 @@ Each role imports the settings it needs; environment variables override defaults
 """
 
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv(override=True)
 
 # ── Kafka ─────────────────────────────────────────────────────────────────────
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -31,8 +38,12 @@ DATABASE_URL = os.getenv(
 )
 JDBC_URL = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-# ── DVC / Storage ────────────────────────────────────────────────────────────
-DVC_REMOTE = os.getenv("DVC_REMOTE", "s3://fints-mlops-data")
+# ── Data Sync ────────────────────────────────────────────────────────────
+CLOUD_SYNC_DIR = os.getenv("CLOUD_SYNC_DIR", "/Users/kgarg/extras/personal_stuff/03_Resources/stock_data")
+
+# ── Telegram Alerts ───────────────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # ── MLflow ────────────────────────────────────────────────────────────────────
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
@@ -62,3 +73,24 @@ STOCK_LIST_CSV_PATH = os.getenv(
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "stock_list.csv"),
 )
 HEADLINE_FETCH_INTERVAL_MINUTES = int(os.getenv("HEADLINE_FETCH_INTERVAL_MINUTES", "30"))
+
+# ── OHLCV Data (TradingView) ─────────────────────────────────────────────────
+OHLC_DATA_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "ohlc_data",
+)
+OHLC_DEFAULT_BARS = int(os.getenv("OHLC_DEFAULT_BARS", "1000"))
+
+# ── Project Timezone ──────────────────────────────────────────────────────────
+# All user-facing timestamps (CSV files, logs, dry-run output) use this zone.
+# Override with TZ env var if deploying outside India.
+PROJECT_TZ = ZoneInfo(os.getenv("PROJECT_TZ", "Asia/Kolkata"))
+
+
+def now_local() -> datetime:
+    """Return the current time in the project timezone (IST by default)."""
+    return datetime.now(PROJECT_TZ)
+
+
+def to_local(dt: datetime) -> datetime:
+    """Convert any aware datetime to the project timezone."""
+    return dt.astimezone(PROJECT_TZ)

@@ -16,7 +16,7 @@
 
 ```bash
 pip install -r requirements.txt
-# Start with the Day-1 fake CSV in data/day1_sample/
+# Start with the OHLCV data in data/ohlc_data/
 python -m role2_ml_modeling.training.train
 ```
 

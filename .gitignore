@@ -231,7 +231,7 @@ data/raw/
 data/processed/
 *.dvc
 /dvc.lock
-
+data/*
 # MLflow
 mlruns/
 mlartifacts/

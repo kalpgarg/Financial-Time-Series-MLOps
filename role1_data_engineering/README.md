@@ -77,7 +77,7 @@ python -m role1_data_engineering.kafka.producers.price_producer --dry-run
 
 # Headline producer → stdout (requires scraped CSV)
 python -m role1_data_engineering.kafka.producers.headline_producer \
-    --csv-path data/scraped/headlines_YYYYMMDD_HHMM.csv --dry-run
+    --csv-path data/stock_news/headlines.csv --dry-run
 ```
 
 ### 4. Run Tests

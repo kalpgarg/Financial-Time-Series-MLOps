@@ -15,9 +15,11 @@ Financial-Time-Series-MLOps/
 │       └── data_contract.py         #   PriceRecord, HeadlineRecord, PredictionRequest/Response
 │
 ├── data/
-│   └── day1_sample/                 # Day-1 fake CSVs (Role 2 starts here)
-│       ├── sample_prices.csv
-│       └── sample_headlines.csv
+│   ├── stock_news/                  # Scraped headlines CSV
+│   │   └── headlines.csv
+│   ├── ohlc_data/                   # OHLCV price data
+│   ├── preopen_csv/                 # Pre-open market data
+│   └── stock_list.csv               # Stock universe with Groww names
 │
 ├── models/
 │   ├── create_dummy_model.py        # Generates dummy model.pkl (Role 3 starts here)

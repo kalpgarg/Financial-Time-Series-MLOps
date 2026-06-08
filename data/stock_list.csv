@@ -1,22 +1,51 @@
-Stock_name	Sector	Groww_name			
-HDFC Bank	Financial Services	hdfc-bank-ltd			
-Tata Consultancy Services (TCS)	Information Technology	tata-consultancy-services-ltd			
-Reliance Industries	Oil Gas & Consumable Fuels	reliance-industries-ltd			
-Maruti Suzuki	Automobiles & Auto Components	maruti-suzuki-india-ltd			
-Hindustan Unilever (HUL)	Fast Moving Consumer Goods	hindustan-unilever-ltd			
-Larsen & Toubro (L&T)	Capital Goods	larsen-toubro-ltd			
-Sun Pharmaceutical	Healthcare	sun-pharmaceutical-industries-ltd			
-Adani Power	Power	adani-power-ltd			
-JSW Steel	Metals & Mining	jsw-steel-ltd			
-Bharti Airtel	Telecommunications	bharti-airtel-ltd			
-					
-					
-					
-					
-					
-					
-					
-					
-					
-					
-					
+Symbol,Stock_name,Sector,Groww_name,TradingView_name
+ADANIENT,Adani Enterprises,Metals & Mining / Diversified,adani-enterprises-ltd,NSE:ADANIENT
+ADANIPORTS,Adani Ports & SEZ,Services,adani-ports-and-special-economic-zone-ltd,NSE:ADANIPORTS
+APOLLOHOSP,Apollo Hospitals,Healthcare,apollo-hospitals-enterprise-ltd,NSE:APOLLOHOSP
+ASIANPAINT,Asian Paints,Consumer Durables,asian-paints-ltd,NSE:ASIANPAINT
+AXISBANK,Axis Bank,Financial Services,axis-bank-ltd,NSE:AXISBANK
+BAJAJ-AUTO,Bajaj Auto,Automobile and Auto Components,bajaj-auto-ltd,NSE:BAJAJ_AUTO
+BAJAJFINSV,Bajaj Finserv,Financial Services,bajaj-finserv-ltd,NSE:BAJAJFINSV
+BAJFINANCE,Bajaj Finance,Financial Services,bajaj-finance-ltd,NSE:BAJFINANCE
+BEL,Bharat Electronics,Capital Goods,bharat-electronics-ltd,NSE:BEL
+BHARTIARTL,Bharti Airtel,Telecommunication,bharti-airtel-ltd,NSE:BHARTIARTL
+CIPLA,Cipla,Healthcare,cipla-ltd,NSE:CIPLA
+COALINDIA,Coal India,"Oil, Gas & Consumable Fuels",coal-india-ltd,NSE:COALINDIA
+DRREDDY,Dr. Reddy's Laboratories,Healthcare,dr-reddys-laboratories-ltd,NSE:DRREDDY
+EICHERMOT,Eicher Motors,Automobile and Auto Components,eicher-motors-ltd,NSE:EICHERMOT
+ETERNAL,Zomato (Eternal),Consumer Services,zomato-ltd,NSE:ETERNAL
+GRASIM,Grasim Industries,Construction Materials,grasim-industries-ltd,NSE:GRASIM
+HCLTECH,HCL Technologies,Information Technology,hcl-technologies-ltd,NSE:HCLTECH
+HDFCBANK,HDFC Bank,Financial Services,hdfc-bank-ltd,NSE:HDFCBANK
+HDFCLIFE,HDFC Life Insurance,Financial Services,hdfc-standard-life-insurance-co-ltd,NSE:HDFCLIFE
+HINDALCO,Hindalco Industries,Metals & Mining,hindalco-industries-ltd,NSE:HINDALCO
+HINDUNILVR,Hindustan Unilever,Fast Moving Consumer Goods,hindustan-unilever-ltd,NSE:HINDUNILVR
+ICICIBANK,ICICI Bank,Financial Services,icici-bank-ltd,NSE:ICICIBANK
+INDIGO,InterGlobe Aviation,Services,interglobe-aviation-ltd,NSE:INDIGO
+INFY,Infosys,Information Technology,infosys-ltd,NSE:INFY
+ITC,ITC,Fast Moving Consumer Goods,itc-ltd,NSE:ITC
+JIOFIN,Jio Financial Services,Financial Services,jio-financial-services-ltd,NSE:JIOFIN
+JSWSTEEL,JSW Steel,Metals & Mining,jsw-steel-ltd,NSE:JSWSTEEL
+KOTAKBANK,Kotak Mahindra Bank,Financial Services,kotak-mahindra-bank-ltd,NSE:KOTAKBANK
+LT,Larsen & Toubro,Construction,larsen-toubro-ltd,NSE:LT
+M&M,Mahindra & Mahindra,Automobile and Auto Components,mahindra-mahindra-ltd,NSE:M_M
+MARUTI,Maruti Suzuki,Automobile and Auto Components,maruti-suzuki-india-ltd,NSE:MARUTI
+MAXHEALTH,Max Healthcare Institute,Healthcare,max-healthcare-institute-ltd,NSE:MAXHEALTH
+NESTLEIND,Nestle India,Fast Moving Consumer Goods,nestle-india-ltd,NSE:NESTLEIND
+NTPC,NTPC,Power,ntpc-ltd,NSE:NTPC
+ONGC,Oil & Natural Gas Corporation,"Oil, Gas & Consumable Fuels",oil-natural-gas-corporation-ltd,NSE:ONGC
+POWERGRID,Power Grid Corporation,Power,power-grid-corporation-of-india-ltd,NSE:POWERGRID
+RELIANCE,Reliance Industries,"Oil, Gas & Consumable Fuels",reliance-industries-ltd,NSE:RELIANCE
+SBILIFE,SBI Life Insurance,Financial Services,sbi-life-insurance-company-ltd,NSE:SBILIFE
+SBIN,State Bank of India,Financial Services,state-bank-of-india,NSE:SBIN
+SHRIRAMFIN,Shriram Finance,Financial Services,shriram-transport-finance-company-ltd,NSE:SHRIRAMFIN
+SUNPHARMA,Sun Pharmaceutical,Healthcare,sun-pharmaceutical-industries-ltd,NSE:SUNPHARMA
+TATACONSUM,Tata Consumer Products,Fast Moving Consumer Goods,tata-global-beverages-ltd,NSE:TATACONSUM
+TATASTEEL,Tata Steel,Metals & Mining,tata-steel-ltd,NSE:TATASTEEL
+TCS,Tata Consultancy Services,Information Technology,tata-consultancy-services-ltd,NSE:TCS
+TECHM,Tech Mahindra,Information Technology,tech-mahindra-ltd,NSE:TECHM
+TITAN,Titan Company,Consumer Durables,titan-company-ltd,NSE:TITAN
+TMPV,Tata Motors,Automobile and Auto Components,tata-motors-ltd,NSE:TMPV
+TRENT,Trent,Consumer Services,trent-ltd,NSE:TRENT
+ULTRACEMCO,UltraTech Cement,Construction Materials,ultratech-cement-ltd,NSE:ULTRACEMCO
+WIPRO,Wipro,Information Technology,wipro-ltd,NSE:WIPRO

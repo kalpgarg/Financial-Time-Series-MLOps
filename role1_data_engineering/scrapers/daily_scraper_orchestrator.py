@@ -39,27 +39,35 @@ logger = logging.getLogger("orchestrator")
 
 
 def run_command(cmd: list[str], task_name: str) -> tuple[bool, str, float]:
-    """Run a shell command, capture output, and return (success, logs, duration)."""
+    """Run a shell command, stream output to console, and return (success, logs, duration)."""
     logger.info("Starting task: %s", task_name)
     start_time = time.time()
+    output_lines = []
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
             cwd=str(PROJECT_ROOT),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            check=False,
+            bufsize=1,
         )
-        duration = time.time() - start_time
-        success = result.returncode == 0
         
-        # Keep last 1500 chars of output for logs if it failed, else just summary
-        output = result.stdout + "\n" + result.stderr
+        # Read output line by line as it is generated
+        for line in process.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            output_lines.append(line)
+            
+        process.wait()
+        duration = time.time() - start_time
+        success = process.returncode == 0
+        output = "".join(output_lines)
         
         if success:
             logger.info("✅ %s completed in %.1fs", task_name, duration)
         else:
-            logger.error("❌ %s failed with exit code %d", task_name, result.returncode)
+            logger.error("❌ %s failed with exit code %d", task_name, process.returncode)
             
         return success, output.strip(), duration
     except Exception as e:

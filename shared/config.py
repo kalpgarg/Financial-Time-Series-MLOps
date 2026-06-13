@@ -78,7 +78,7 @@ HEADLINE_FETCH_INTERVAL_MINUTES = int(os.getenv("HEADLINE_FETCH_INTERVAL_MINUTES
 OHLC_DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "data", "ohlc_data",
 )
-OHLC_DEFAULT_BARS = int(os.getenv("OHLC_DEFAULT_BARS", "1000"))
+OHLC_DEFAULT_BARS = int(os.getenv("OHLC_DEFAULT_BARS", "10000"))
 
 # ── Project Timezone ──────────────────────────────────────────────────────────
 # All user-facing timestamps (CSV files, logs, dry-run output) use this zone.

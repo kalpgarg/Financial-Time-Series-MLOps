@@ -1,15 +1,16 @@
 """
-OHLCV scraper: fetches daily OHLCV data for all Nifty-50 stocks from
-TradingView via the tvDatafeed library and writes per-stock CSV files
-into data/ohlc_data/<Stock_name>_daily_data.csv.
+OHLCV scraper: fetches daily and 15-minute OHLCV data for all Nifty-50
+stocks from TradingView via the tvDatafeed library and writes per-stock
+CSV files into data/ohlc_data/<Stock_name>_{daily,15min}_data.csv.
 
 Incremental logic:
-  - First run (no CSV): fetches the last OHLC_DEFAULT_BARS (1000) daily bars.
-  - Subsequent runs: reads the existing CSV, determines the latest date,
-    fetches only bars after that date and appends them.
+  - First run (no CSV): fetches the last OHLC_DEFAULT_BARS (1000) bars.
+  - Subsequent runs: reads the existing CSV, determines the latest
+    date/datetime, fetches only bars after that point and appends them.
 
-After all stocks are scraped, a merged file (data/ohlc_data/merged_ohlc.csv)
-is created by concatenating every per-stock CSV.
+After all stocks are scraped, merged files are created:
+  - data/ohlc_data/merged_ohlc.csv        (daily)
+  - data/ohlc_data/merged_ohlc_15min.csv   (15-minute)
 
 Usage:
     # Write to CSV (default)
@@ -48,17 +49,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ohlc_scraper")
 
-MERGED_CSV_NAME = "merged_ohlc.csv"
+MERGED_CSV_DAILY = "merged_ohlc.csv"
+MERGED_CSV_15MIN = "merged_ohlc_15min.csv"
 
-CSV_COLUMNS = ["symbol", "date", "open", "high", "low", "close", "volume"]
+CSV_COLUMNS_DAILY = ["symbol", "date", "open", "high", "low", "close", "volume"]
+CSV_COLUMNS_15MIN = ["symbol", "datetime", "open", "high", "low", "close", "volume"]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _stock_csv_path(stock_name: str) -> str:
-    """Return the per-stock CSV path: data/ohlc_data/<Stock_name>_daily_data.csv."""
+def _stock_csv_path(stock_name: str, interval_label: str = "daily") -> str:
+    """Return the per-stock CSV path.
+
+    interval_label: 'daily' or '15min'
+    """
     safe_name = stock_name.replace(" ", "_").replace("/", "_")
-    return os.path.join(OHLC_DATA_DIR, f"{safe_name}_daily_data.csv")
+    return os.path.join(OHLC_DATA_DIR, f"{safe_name}_{interval_label}_data.csv")
 
 
 def _parse_tv_name(tv_name: str) -> tuple[str, str]:
@@ -103,22 +109,35 @@ def get_latest_date(df: pd.DataFrame) -> pd.Timestamp | None:
     return latest
 
 
+def _get_latest_datetime(df: pd.DataFrame) -> pd.Timestamp | None:
+    """Get the most recent datetime from an existing intraday stock dataframe."""
+    if df is None or "datetime" not in df.columns:
+        return None
+    dts = pd.to_datetime(df["datetime"], errors="coerce")
+    latest = dts.max()
+    if pd.isna(latest):
+        return None
+    return latest
+
+
 def fetch_stock_data(
     tv: TvDatafeed,
     symbol: str,
     exchange: str,
     stock_name: str,
     n_bars: int = OHLC_DEFAULT_BARS,
+    interval: Interval = Interval.in_daily,
 ) -> pd.DataFrame | None:
     """Fetch OHLCV data from TradingView for a single stock.
 
-    Returns a cleaned DataFrame with columns matching CSV_COLUMNS, or None.
+    Returns a cleaned DataFrame with columns matching the appropriate
+    CSV_COLUMNS list, or None.
     """
     try:
         df = tv.get_hist(
             symbol=symbol,
             exchange=exchange,
-            interval=Interval.in_daily,
+            interval=interval,
             n_bars=n_bars,
         )
     except Exception:
@@ -131,12 +150,22 @@ def fetch_stock_data(
 
     # The returned DF has a datetime index (UTC) and columns: symbol, open, high, low, close, volume
     df = df.reset_index()
-    # Convert UTC datetime to IST date
+    # Convert UTC datetime to IST
     df["datetime"] = pd.to_datetime(df["datetime"]).dt.tz_convert(PROJECT_TZ)
-    df["date"] = df["datetime"].dt.date.astype(str)
+
+    is_intraday = interval != Interval.in_daily
+
+    if is_intraday:
+        # Keep full datetime string for intraday data
+        df["datetime"] = df["datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        csv_cols = CSV_COLUMNS_15MIN
+    else:
+        df["date"] = df["datetime"].dt.date.astype(str)
+        csv_cols = CSV_COLUMNS_DAILY
+
     # Use our Stock_name as the symbol (not the TradingView symbol like NSE:HDFCBANK)
     df["symbol"] = stock_name
-    df = df[CSV_COLUMNS].copy()
+    df = df[csv_cols].copy()
     # Round floats to 2 decimal places
     for col in ("open", "high", "low", "close"):
         df[col] = df[col].round(2)
@@ -159,58 +188,71 @@ def scrape_stock(
     tv: TvDatafeed,
     stock_name: str,
     tv_name: str,
+    interval: Interval = Interval.in_daily,
 ) -> tuple[str, int]:
     """Scrape a single stock: fetch new data, append to its CSV.
 
     Returns (stock_name, new_rows_count).
     """
+    is_intraday = interval != Interval.in_daily
+    interval_label = "15min" if is_intraday else "daily"
+    time_col = "datetime" if is_intraday else "date"
+
     symbol, exchange = _parse_tv_name(tv_name)
-    csv_path = _stock_csv_path(stock_name)
+    csv_path = _stock_csv_path(stock_name, interval_label)
     existing_df = load_existing_stock_csv(csv_path)
-    latest_date = get_latest_date(existing_df)
+    latest_date = get_latest_date(existing_df) if not is_intraday else _get_latest_datetime(existing_df)
 
     if latest_date is not None:
-        logger.info("  %s: existing data up to %s", stock_name, latest_date.strftime("%Y-%m-%d"))
-        # Fetch a reasonable window of bars to cover the gap
-        # We fetch more than needed and filter — TradingView doesn't support date ranges
-        # latest_date is tz-naive (date only); localise before arithmetic
+        logger.info("  %s [%s]: existing data up to %s", stock_name, interval_label, str(latest_date))
         if latest_date.tzinfo is None:
             latest_date = latest_date.tz_localize(PROJECT_TZ)
-        days_gap = (pd.Timestamp.now(tz=PROJECT_TZ) - latest_date).days + 5
-        n_bars = max(days_gap, 10)
+        gap_seconds = (pd.Timestamp.now(tz=PROJECT_TZ) - latest_date).total_seconds()
+        if is_intraday:
+            # Each bar = 15 min; add a buffer of 20 extra bars
+            n_bars = max(int(gap_seconds / 900) + 20, 10)
+        else:
+            days_gap = int(gap_seconds / 86400) + 5
+            n_bars = max(days_gap, 10)
     else:
-        logger.info("  %s: no existing data — fetching %d bars", stock_name, OHLC_DEFAULT_BARS)
+        logger.info("  %s [%s]: no existing data — fetching %d bars", stock_name, interval_label, OHLC_DEFAULT_BARS)
         n_bars = OHLC_DEFAULT_BARS
 
-    fetched_df = fetch_stock_data(tv, symbol, exchange, stock_name, n_bars=n_bars)
+    fetched_df = fetch_stock_data(tv, symbol, exchange, stock_name, n_bars=n_bars, interval=interval)
     if fetched_df is None:
         return stock_name, 0
 
-    # Filter to only new rows (dates strictly after the latest existing date)
+    # Filter to only new rows strictly after the latest existing point
     if latest_date is not None:
-        latest_str = latest_date.strftime("%Y-%m-%d")
-        fetched_df = fetched_df[fetched_df["date"] > latest_str]
+        latest_str = latest_date.strftime("%Y-%m-%d %H:%M:%S") if is_intraday else latest_date.strftime("%Y-%m-%d")
+        fetched_df = fetched_df[fetched_df[time_col] > latest_str]
 
     if fetched_df.empty:
-        logger.info("  %s: 0 new rows", stock_name)
+        logger.info("  %s [%s]: 0 new rows", stock_name, interval_label)
         return stock_name, 0
 
-    # Drop duplicates within the fetched batch (same date)
-    fetched_df = fetched_df.drop_duplicates(subset=["date"], keep="last")
+    # Drop duplicates within the fetched batch
+    fetched_df = fetched_df.drop_duplicates(subset=[time_col], keep="last")
 
     first_write = existing_df is None
     save_stock_csv(fetched_df, csv_path, first_write=first_write)
-    logger.info("  %s: %d new rows appended → %s", stock_name, len(fetched_df), csv_path)
+    logger.info("  %s [%s]: %d new rows appended → %s", stock_name, interval_label, len(fetched_df), csv_path)
     return stock_name, len(fetched_df)
 
 
-def build_merged_csv():
-    """Concatenate all per-stock CSVs into merged_ohlc.csv."""
-    merged_path = os.path.join(OHLC_DATA_DIR, MERGED_CSV_NAME)
+def build_merged_csv(interval_label: str = "daily"):
+    """Concatenate all per-stock CSVs into a merged file.
+
+    interval_label: 'daily' or '15min'
+    """
+    suffix = f"_{interval_label}_data.csv"
+    merged_name = MERGED_CSV_DAILY if interval_label == "daily" else MERGED_CSV_15MIN
+    sort_col = "date" if interval_label == "daily" else "datetime"
+    merged_path = os.path.join(OHLC_DATA_DIR, merged_name)
     all_frames = []
 
     for fname in sorted(os.listdir(OHLC_DATA_DIR)):
-        if fname == MERGED_CSV_NAME or not fname.endswith("_daily_data.csv"):
+        if fname == merged_name or not fname.endswith(suffix):
             continue
         fpath = os.path.join(OHLC_DATA_DIR, fname)
         try:
@@ -221,22 +263,52 @@ def build_merged_csv():
             logger.warning("Skipping corrupt file: %s", fpath)
 
     if not all_frames:
-        logger.warning("No per-stock CSVs found — skipping merged CSV.")
+        logger.warning("No per-stock %s CSVs found — skipping merged CSV.", interval_label)
         return
 
     merged = pd.concat(all_frames, ignore_index=True)
-    merged = merged.sort_values(["symbol", "date"]).reset_index(drop=True)
+    merged = merged.sort_values(["symbol", sort_col]).reset_index(drop=True)
 
     with open(merged_path, "w", encoding="utf-8-sig", newline="") as f:
         merged.to_csv(f, index=False, header=True)
     logger.info(
-        "Merged CSV: %d rows across %d stocks → %s",
-        len(merged), merged["symbol"].nunique(), merged_path,
+        "Merged %s CSV: %d rows across %d stocks → %s",
+        interval_label, len(merged), merged["symbol"].nunique(), merged_path,
     )
 
 
+def _run_interval_scrape(
+    tv: TvDatafeed,
+    stocks_df: pd.DataFrame,
+    interval: Interval,
+) -> tuple[int, list[tuple[str, int]]]:
+    """Scrape all stocks for a given interval. Returns (total_new, results)."""
+    label = "15min" if interval != Interval.in_daily else "daily"
+    logger.info("── Starting %s scrape ──", label)
+
+    total_new = 0
+    results: list[tuple[str, int]] = []
+
+    for _, row in stocks_df.iterrows():
+        stock_name = row["Stock_name"].strip()
+        tv_name = row["TradingView_name"].strip()
+
+        try:
+            name, count = scrape_stock(tv, stock_name, tv_name, interval=interval)
+            results.append((name, count))
+            total_new += count
+        except Exception:
+            logger.exception("Failed to scrape %s [%s]", stock_name, label)
+            results.append((stock_name, 0))
+
+        # Small delay to avoid rate-limiting
+        time.sleep(1)
+
+    return total_new, results
+
+
 def scrape_all(dry_run: bool = False):
-    """Main entry point: scrape all stocks, then build merged CSV."""
+    """Main entry point: scrape all stocks (daily + 15min), then build merged CSVs."""
     stocks_df = load_stock_list(STOCK_LIST_CSV_PATH)
     if stocks_df.empty:
         logger.error("No stocks with TradingView_name found in %s. Exiting.", STOCK_LIST_CSV_PATH)
@@ -252,39 +324,32 @@ def scrape_all(dry_run: bool = False):
         logger.info("No TV_UNAME/TV_PASSWD set — using anonymous access (data may be limited)")
         tv = TvDatafeed()
 
-    total_new = 0
-    results: list[tuple[str, int]] = []
+    # Daily scrape
+    # daily_total, daily_results = _run_interval_scrape(tv, stocks_df, Interval.in_daily)
 
-    for _, row in stocks_df.iterrows():
-        stock_name = row["Stock_name"].strip()
-        tv_name = row["TradingView_name"].strip()
-
-        try:
-            name, count = scrape_stock(tv, stock_name, tv_name)
-            results.append((name, count))
-            total_new += count
-        except Exception:
-            logger.exception("Failed to scrape %s", stock_name)
-            results.append((stock_name, 0))
-
-        # Small delay to avoid rate-limiting
-        time.sleep(1)
+    # 15-minute scrape
+    min15_total, min15_results = _run_interval_scrape(tv, stocks_df, Interval.in_15_minute)
 
     # Summary
     logger.info("=" * 60)
     logger.info("OHLCV scrape complete at %s", now_local().isoformat())
-    logger.info("Total new rows: %d", total_new)
-    for name, count in results:
+    # logger.info("Daily — total new rows: %d", daily_total)
+    # for name, count in daily_results:
+    #     if count > 0:
+    #         logger.info("  %s [daily]: +%d rows", name, count)
+    logger.info("15min — total new rows: %d", min15_total)
+    for name, count in min15_results:
         if count > 0:
-            logger.info("  %s: +%d rows", name, count)
+            logger.info("  %s [15min]: +%d rows", name, count)
     logger.info("=" * 60)
 
     if dry_run:
         logger.info("Dry-run mode — skipping merged CSV build.")
         return
 
-    # Build the merged CSV from all per-stock CSVs
-    build_merged_csv()
+    # Build merged CSVs for both intervals
+    build_merged_csv("daily")
+    build_merged_csv("15min")
 
 
 if __name__ == "__main__":

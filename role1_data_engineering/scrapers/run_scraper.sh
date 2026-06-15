@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Cron uses a minimal PATH; ensure uv and other user-local tools are reachable
+export PATH="/Users/kgarg/.local/bin:/usr/local/bin:$PATH"
+
 # Define paths
 REPO_DIR="/Users/kgarg/extras/personal_github/Financial-Time-Series-MLOps"
 ENV_FILE="$REPO_DIR/.env"

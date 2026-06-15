@@ -325,7 +325,7 @@ def scrape_all(dry_run: bool = False):
         tv = TvDatafeed()
 
     # Daily scrape
-    # daily_total, daily_results = _run_interval_scrape(tv, stocks_df, Interval.in_daily)
+    daily_total, daily_results = _run_interval_scrape(tv, stocks_df, Interval.in_daily)
 
     # 15-minute scrape
     min15_total, min15_results = _run_interval_scrape(tv, stocks_df, Interval.in_15_minute)
@@ -333,10 +333,10 @@ def scrape_all(dry_run: bool = False):
     # Summary
     logger.info("=" * 60)
     logger.info("OHLCV scrape complete at %s", now_local().isoformat())
-    # logger.info("Daily — total new rows: %d", daily_total)
-    # for name, count in daily_results:
-    #     if count > 0:
-    #         logger.info("  %s [daily]: +%d rows", name, count)
+    logger.info("Daily — total new rows: %d", daily_total)
+    for name, count in daily_results:
+        if count > 0:
+            logger.info("  %s [daily]: +%d rows", name, count)
     logger.info("15min — total new rows: %d", min15_total)
     for name, count in min15_results:
         if count > 0:

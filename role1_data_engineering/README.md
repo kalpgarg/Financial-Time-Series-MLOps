@@ -5,23 +5,17 @@
 ## Architecture
 
 ```
- 8:30 AM IST                    9:00 AM             9:07 AM            ~9:10 AM
-┌──────────────┐          ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  Headline    │  CSV     │  Headline    │   │  Price       │   │  Spark       │
-│  Scraper     ├─────────►│  Producer    │   │  Producer    │   │  Pipeline    │
-│  (crawl4ai)  │          │  (→ Kafka)   │   │  (Upstox→K)  │   │  clean+join  │
-└──────────────┘          └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
-                                 │                  │                  │
-                          ┌──────▼───────┐   ┌──────▼───────┐   ┌──────▼───────┐
-                          │ news_features│   │market_features│  │feature_vectors│
-                          │  (Kafka)     │   │  (Kafka)     │   │ (PostgreSQL) │
-                          └──────┬───────┘   └──────┬───────┘   └──────────────┘
-                                 │                  │
-                          ┌──────▼───────┐   ┌──────▼───────┐
-                          │  Headline    │   │  Price       │
-                          │  Consumer    │   │  Consumer    │
-                          │  (→ PG)      │   │  (→ PG)      │
-                          └──────────────┘   └──────────────┘
+ 8:30 AM IST                                         ~9:00 AM
+┌──────────────┐                               ┌──────────────┐
+│  Headline    │  CSV                           │  Spark       │
+│  Scraper     ├──────────┐                     │  Pipeline    │
+│  (crawl4ai)  │          │                     │  clean+join  │
+└──────────────┘          ├────────────────────►└──────┬───────┘
+┌──────────────┐          │                            │
+│  OHLCV       │  CSV     │                     ┌──────▼───────┐
+│  Scraper     ├──────────┘                     │feature_vectors│
+│  (TV/Upstox) │                                │ (PostgreSQL) │
+└──────────────┘                                └──────────────┘
 ```
 
 **Airflow** orchestrates the entire sequence on weekdays (Mon–Fri).
@@ -30,13 +24,11 @@
 
 | Directory | Description |
 |-----------|-------------|
-| `scrapers/` | crawl4ai headline scraper → timestamped CSV |
-| `kafka/producers/` | CSV → Kafka (`news_features`), Upstox API → Kafka (`market_features`) |
-| `kafka/consumers/` | Kafka → PostgreSQL staging tables (`raw_headlines`, `raw_prices`) |
+| `scrapers/` | crawl4ai headline scraper, TradingView OHLCV scraper, NSE pre-open scraper |
 | `spark/` | PySpark: clean headlines, clean prices, join → `feature_vectors` |
-| `airflow/dags/` | Airflow DAG with time-sequenced tasks + KafkaSensor |
+| `airflow/dags/` | Airflow DAG with time-sequenced tasks |
 | `db/` | PostgreSQL schema initialisation (`init_db.py`) |
-| `tests/` | Unit tests for producers, consumers, and Spark logic |
+| `tests/` | Unit tests for scrapers and Spark logic |
 
 ## Getting Started
 
@@ -44,7 +36,7 @@
 
 ```bash
 cd role3_mlops_devops/docker
-docker-compose up -d zookeeper kafka kafka-init local_postgres
+docker-compose up -d local_postgres
 ```
 
 > **Local PostgreSQL:** If you already have PostgreSQL running locally
@@ -72,12 +64,11 @@ The script is **idempotent** — safe to re-run at any time.
 # Scrape headlines → stdout
 python -m role1_data_engineering.scrapers.headline_scraper --dry-run
 
-# Price producer → stdout (uses sample data)
-python -m role1_data_engineering.kafka.producers.price_producer --dry-run
+# OHLCV scraper (TradingView) → CSV
+python -m role1_data_engineering.scrapers.ohlc_scraper --dry-run
 
-# Headline producer → stdout (requires scraped CSV)
-python -m role1_data_engineering.kafka.producers.headline_producer \
-    --csv-path data/stock_news/headlines.csv --dry-run
+# OHLCV scraper (Upstox) → CSV
+python -m role1_data_engineering.scrapers.ohlc_scraper_upstox --dry-run
 ```
 
 ### 4. Run Tests
@@ -90,18 +81,12 @@ pytest role1_data_engineering/tests/ -v
 
 | Service | Internal Host | External (Host) |
 |---------|--------------|-----------------|
-| Kafka | `kafka:29092` | `localhost:9092` |
-| Zookeeper | `zookeeper:2181` | `localhost:2181` |
 | PostgreSQL | `local_postgres:5432` | `localhost:5432` |
-| Kafka UI | — | `localhost:8085` |
 | pgAdmin | — | `localhost:5050` |
 
 **DB credentials:** `fints_user` / `fints_pass` / database `fints`
 
 ### Admin UIs
-
-- **Kafka UI** — [http://localhost:8085](http://localhost:8085)
-  Browse topics (`news_features`, `market_features`, `execution_signals`), inspect messages, monitor consumer groups and lag.
 
 - **pgAdmin** — [http://localhost:5050](http://localhost:5050)
   Login: `admin@quant.com` / `admin`.

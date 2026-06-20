@@ -12,15 +12,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv(override=True)
 
-# ── Kafka ─────────────────────────────────────────────────────────────────────
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-KAFKA_TOPIC_NEWS_FEATURES = os.getenv("KAFKA_TOPIC_NEWS_FEATURES", "news_features")
-KAFKA_TOPIC_MARKET_FEATURES = os.getenv("KAFKA_TOPIC_MARKET_FEATURES", "market_features")
-KAFKA_TOPIC_EXECUTION_SIGNALS = os.getenv("KAFKA_TOPIC_EXECUTION_SIGNALS", "execution_signals")
-# Legacy aliases (kept for backward-compatibility)
-KAFKA_TOPIC_HEADLINES = KAFKA_TOPIC_NEWS_FEATURES
-KAFKA_TOPIC_PRICES = KAFKA_TOPIC_MARKET_FEATURES
-
 # ── Spark ─────────────────────────────────────────────────────────────────────
 SPARK_MASTER = os.getenv("SPARK_MASTER", "local[*]")
 SPARK_APP_NAME = os.getenv("SPARK_APP_NAME", "FinTSProcessor")
@@ -60,14 +51,6 @@ MODEL_PATH = os.getenv("MODEL_PATH", "models/model.pkl")
 # ── Monitoring ────────────────────────────────────────────────────────────────
 PROMETHEUS_PORT = int(os.getenv("PROMETHEUS_PORT", "9090"))
 KIBANA_URL = os.getenv("KIBANA_URL", "http://localhost:5601")
-
-# ── Data APIs ─────────────────────────────────────────────────────────────────
-NEWS_RSS_FEEDS = [
-    "https://feeds.finance.yahoo.com/rss/2.0/headline",
-    "https://www.reuters.com/rssFeed/businessNews",
-]
-STOCK_API_BASE = os.getenv("STOCK_API_BASE", "https://query1.finance.yahoo.com/v8/finance")
-SYMBOLS = os.getenv("SYMBOLS", "^GSPC,^DJI,AAPL,MSFT,GOOG").split(",")
 
 # ── Groww Headline Scraping ──────────────────────────────────────────────────
 GROWW_NEWS_URL_TEMPLATE = "https://groww.in/stocks/{groww_name}/market-news"

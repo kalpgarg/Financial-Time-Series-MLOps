@@ -30,7 +30,7 @@ logger = logging.getLogger("init_db")
 # ── DDL Statements ───────────────────────────────────────────────────────────
 
 TABLES_SQL = """
--- Staging tables (written by Kafka consumers)
+-- Staging tables (written by scrapers / Spark ingest)
 CREATE TABLE IF NOT EXISTS raw_headlines (
     id              SERIAL PRIMARY KEY,
     headline_id     VARCHAR(64) UNIQUE NOT NULL,

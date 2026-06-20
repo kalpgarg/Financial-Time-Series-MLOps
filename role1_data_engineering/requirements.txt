@@ -1,5 +1,4 @@
 # Role 1 – Data Engineering Lead dependencies
-kafka-python>=2.0.2
 pyspark>=3.5.0
 apache-airflow>=2.8.0
 feedparser>=6.0.0

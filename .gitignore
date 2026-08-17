@@ -1,3 +1,4 @@
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -242,3 +243,9 @@ airflow/*.db
 airflow/*.cfg
 
 *.DS_Store
+
+# DVC-managed model files
+/xgboost_model.pkl
+/finbert_pca.pkl
+/feature_columns.pkl
+/symbol_encoder.pkl

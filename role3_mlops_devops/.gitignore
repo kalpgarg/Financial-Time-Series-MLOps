@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local database -- regenerate with batch_score.py
+*.db
+
+# HuggingFace cache if pulled locally
+.hf_cache/
+
+# The 4 pickled artifacts (finbert_pca, symbol_encoder, feature_columns,
+# xgboost_model) live in artifacts/ and are required for the Docker build and
+# to run the service. They are small (~1.5MB total) and tracked in Git so the
+# repo is self-contained and reproducible. If the team versions them with DVC
+# instead, ignore them here and `dvc pull` before building.

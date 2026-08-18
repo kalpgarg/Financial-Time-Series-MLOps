@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.gitignore
+
+# Local dev database — the container uses Postgres
+*.db
+
+# Docs and editor cruft don't belong in the image
+*.md
+.vscode/
+.idea/
+
+# NOTE: artifacts/*.pkl ARE copied into the image (the model needs them).

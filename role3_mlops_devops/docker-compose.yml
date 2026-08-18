@@ -1,0 +1,63 @@
+# Deployment + monitoring stack (Points 6 & 7): FastAPI service, Postgres, and
+# Prometheus scraping the API's /metrics endpoint.
+#
+#   docker compose up --build        # API :8000, Prometheus :9090
+#   docker compose down              # stop (add -v to wipe the database)
+#
+# The API waits for Postgres to pass its healthcheck before starting, so the
+# first request never races an unready database.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mlops
+      POSTGRES_PASSWORD: mlops
+      POSTGRES_DB: predictions
+    ports:
+      - "5432:5432"          # exposed for inspection (psql / a GUI); drop for prod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlops -d predictions"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg2://mlops:mlops@db:5432/predictions
+      MARKET_TZ: Asia/Kolkata
+      MODEL_VERSION: finbert-pca-xgb-1.0.0
+      # FinBERT is baked into the image; stay offline at runtime.
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "1"
+      # The .pkl artifacts are read from the mounted models/ dir (below).
+      ARTIFACTS_DIR: /app/models
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount the repo-level models/ directory (github-project/models) read-only.
+      # This compose file is one level below the repo root, so ../models is
+      # github-project/models. Swapping retrained artifacts here needs only a
+      # container restart, not a rebuild -- just bump MODEL_VERSION above.
+      - ../models:/app/models:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"          # Prometheus UI / query at http://localhost:9090
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:

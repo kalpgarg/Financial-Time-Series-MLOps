@@ -1,10 +1,34 @@
-# Role 3 – MLOps & DevOps Lead dependencies
-fastapi>=0.109.0
-uvicorn[standard]>=0.25.0
-prometheus-client>=0.19.0
-prometheus-fastapi-instrumentator>=6.1.0
-httpx>=0.26.0
-joblib>=1.3.0
-torch>=2.1.0
-scikit-learn>=1.3.0
-python-multipart>=0.0.6
+# --- Web service ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+SQLAlchemy==2.0.36
+
+# --- Monitoring ---
+prometheus-client==0.21.1
+
+# --- Model pipeline ---
+# scikit-learn and xgboost are PINNED to the versions the artifacts were saved
+# with. A mismatch unpickles with an InconsistentVersionWarning and can produce
+# silently wrong results, so do not bump these without re-exported artifacts.
+scikit-learn==1.6.1
+xgboost==3.2.0
+joblib==1.5.3
+pandas==3.0.5
+numpy==2.4.6
+scipy==1.17.1
+
+# FinBERT sentiment encoder.
+transformers==5.15.0
+# torch is intentionally NOT listed here. If it were, `pip install -r
+# requirements.txt` would pull the multi-GB CUDA build from PyPI and overwrite
+# a CPU install. Install it explicitly instead:
+#   Docker : handled in the Dockerfile (CPU-only index)
+#   Local  : pip install torch==2.13.0   (macOS gets the CPU/MPS build)
+
+# --- Testing ---
+pytest==8.3.4
+httpx==0.28.1
+
+# --- Postgres driver (used by the Docker Compose stack) ---
+psycopg2-binary==2.9.10

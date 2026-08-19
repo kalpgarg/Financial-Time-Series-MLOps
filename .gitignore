@@ -230,7 +230,7 @@ models/*.onnx
 # Data (tracked via DVC)
 data/raw/
 data/processed/
-*.dvc
+
 /dvc.lock
 data/*
 # MLflow

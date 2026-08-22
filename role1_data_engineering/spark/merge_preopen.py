@@ -28,7 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from shared.config import OHLC_DATA_DIR, STOCK_LIST_CSV_PATH, now_local
+from shared.config import STOCK_LIST_CSV_PATH, now_local
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger("merge_preopen")
 
 PREOPEN_DIR = os.path.join(PROJECT_ROOT, "data", "preopen_csv")
-MERGED_15MIN_CSV = os.path.join(OHLC_DATA_DIR, "merged_ohlc_15min.csv")
+MERGED_15MIN_CSV = os.path.join(PROJECT_ROOT, "data", "merged_ohlc_15min.csv")
 
 
 def _build_symbol_map(stock_list_path: str) -> dict[str, str]:
@@ -53,8 +53,16 @@ def _build_symbol_map(stock_list_path: str) -> dict[str, str]:
 
     symbol_map: dict[str, str] = {}
 
-    # Primary mapping: NSE_symbol column if it exists
-    if "NSE_symbol" in df.columns:
+    # Primary mapping: Symbol column (stock_list.csv uses "Symbol" for NSE ticker)
+    if "Symbol" in df.columns:
+        for _, row in df.iterrows():
+            nse_sym = str(row.get("Symbol", "")).strip()
+            stock_name = str(row.get("Stock_name", "")).strip()
+            if nse_sym and stock_name:
+                symbol_map[nse_sym] = stock_name
+
+    # Fallback: NSE_symbol column if it exists
+    if not symbol_map and "NSE_symbol" in df.columns:
         for _, row in df.iterrows():
             nse_sym = str(row.get("NSE_symbol", "")).strip()
             stock_name = str(row.get("Stock_name", "")).strip()

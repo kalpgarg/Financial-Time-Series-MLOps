@@ -1,29 +1,49 @@
 """
-Airflow DAG: End-to-end inference pipeline on Indian market days.
+Airflow DAG: End-to-end inference pipeline.
 
-Time sequence (IST, UTC+05:30):
-  08:30 — Scrape headlines (Groww) + OHLCV (TradingView/Upstox) in parallel
-  09:11 — TimeSensor waits, then scrape NSE F&O pre-open data
-  09:12 — Spark: clean headlines → data/headlines.csv
-           Spark: merge pre-open 09:15 bar → merged_ohlc_15min.csv
-  09:15 — Docker: run batch_score.py (role3 inference image)
-  09:20 — DVC: add + push headlines.csv & merged_ohlc_15min.csv
+Task graph (all tasks run back-to-back, no time gates):
+  1. Scrape headlines (Groww) + OHLCV (TradingView) in parallel
+  2. Scrape NSE F&O pre-open data
+  3. Spark: clean headlines → data/headlines.csv
+     Spark: merge pre-open 09:15 bar → merged_ohlc_15min.csv
+  4. Docker: run batch_score.py (role3 inference image)
+  5. DVC: add + push headlines.csv & merged_ohlc_15min.csv
 
-Schedule: 0 3 * * 1-5  (03:00 UTC = 08:30 IST, weekdays only)
+Schedule: @once (manual trigger for testing)
+
+Production: change schedule to '0 3 * * 1-5' and re-add TimeSensor
+before scrape_preopen (target_time=time(3,41) = 09:11 IST).
 """
 
 import os
 import subprocess
 import sys
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.sensors.time_sensor import TimeSensor
 
-# ── Project root (assumes Airflow has access to the repo) ────────────────────
-PROJECT_ROOT = str(Path(__file__).resolve().parents[3])
+# ── Project root ─────────────────────────────────────────────────────────────
+# When the DAG lives in the repo (role1.../airflow/dags/) parents[3] is correct.
+# When it's copied to airflow_home/dags/ we fall back to the env var or search
+# for pyproject.toml up from cwd.
+def _find_project_root() -> str:
+    # 1. Explicit env var
+    env = os.getenv("FINTS_PROJECT_ROOT")
+    if env:
+        return env
+    # 2. Walk up from the DAG file looking for pyproject.toml
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / "pyproject.toml").exists():
+            return str(p)
+        p = p.parent
+    # 3. Fallback: cwd
+    return os.getcwd()
+
+
+PROJECT_ROOT = _find_project_root()
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -32,10 +52,18 @@ PYTHON_BIN = sys.executable  # use the same Python interpreter as Airflow
 # Docker image for inference (role3 API image)
 INFERENCE_IMAGE = os.getenv("INFERENCE_DOCKER_IMAGE", "fints-api:latest")
 
-# Database URL for the inference container
+# Set SKIP_SCRAPERS=1 to skip live scraping (use existing data for testing)
+SKIP_SCRAPERS = os.getenv("SKIP_SCRAPERS", "0") == "1"
+
+# Docker network where Postgres runs (from role3 docker-compose)
+INFERENCE_DOCKER_NETWORK = os.getenv(
+    "INFERENCE_DOCKER_NETWORK", "role3_mlops_devops_default",
+)
+
+# Database URL for the inference container (uses Docker DNS hostname "db")
 INFERENCE_DB_URL = os.getenv(
     "INFERENCE_DATABASE_URL",
-    "postgresql+psycopg2://mlops:mlops@host.docker.internal:5432/predictions",
+    "postgresql+psycopg2://mlops:mlops@db:5432/predictions",
 )
 
 # ── Default args ─────────────────────────────────────────────────────────────
@@ -86,14 +114,17 @@ with DAG(
     dag_id="financial_ts_inference_pipeline",
     default_args=default_args,
     description="End-to-end inference: scrape → Spark cleanup → Docker inference → DVC push",
-    schedule_interval="0 3 * * 1-5",  # 03:00 UTC = 08:30 IST, Mon–Fri
-    start_date=datetime(2026, 5, 30),
+    schedule_interval="@once" if SKIP_SCRAPERS else "0 3 * * 1-5",
+    start_date=datetime(2026, 8, 22),
     catchup=False,
     tags=["data-engineering", "inference", "role1", "role3"],
 ) as dag:
 
     # ── Task 1: Scrape headlines → CSV ───────────────────────────────────────
     def scrape_headlines(**context):
+        if SKIP_SCRAPERS:
+            print("SKIP_SCRAPERS=1: skipping headline scraper")
+            return
         _run_module("role1_data_engineering.scrapers.headline_scraper")
 
     task_scrape_headlines = PythonOperator(
@@ -104,6 +135,9 @@ with DAG(
 
     # ── Task 2: Scrape OHLCV data → CSV ─────────────────────────────────────
     def scrape_ohlcv(**context):
+        if SKIP_SCRAPERS:
+            print("SKIP_SCRAPERS=1: skipping OHLCV scraper")
+            return
         _run_module("role1_data_engineering.scrapers.ohlc_scraper")
 
     task_scrape_ohlcv = PythonOperator(
@@ -112,17 +146,11 @@ with DAG(
         execution_timeout=timedelta(minutes=60),
     )
 
-    # ── Task 3: Wait until 09:11 IST (03:41 UTC) ────────────────────────────
-    task_wait_preopen = TimeSensor(
-        task_id="wait_for_preopen_time",
-        target_time=time(3, 41),  # 03:41 UTC = 09:11 IST
-        poke_interval=30,
-        timeout=3600,
-        mode="reschedule",
-    )
-
-    # ── Task 4: Scrape NSE F&O pre-open data ────────────────────────────────
+    # ── Task 3: Scrape NSE F&O pre-open data ────────────────────────────────
     def scrape_preopen(**context):
+        if SKIP_SCRAPERS:
+            print("SKIP_SCRAPERS=1: skipping pre-open scraper")
+            return
         _run_module("role1_data_engineering.scrapers.nse_preopen_scraper")
 
     task_scrape_preopen = PythonOperator(
@@ -131,7 +159,7 @@ with DAG(
         execution_timeout=timedelta(minutes=5),
     )
 
-    # ── Task 5: Spark — clean headlines → data/headlines.csv ─────────────────
+    # ── Task 4: Spark — clean headlines → data/headlines.csv ─────────────────
     def spark_clean_headlines(**context):
         _run_module("role1_data_engineering.spark.clean_headlines")
 
@@ -141,7 +169,7 @@ with DAG(
         execution_timeout=timedelta(minutes=10),
     )
 
-    # ── Task 6: Merge pre-open into merged_ohlc_15min.csv ────────────────────
+    # ── Task 5: Merge pre-open into merged_ohlc_15min.csv ────────────────────
     def spark_merge_preopen(**context):
         _run_module("role1_data_engineering.spark.merge_preopen")
 
@@ -151,11 +179,12 @@ with DAG(
         execution_timeout=timedelta(minutes=5),
     )
 
-    # ── Task 7: Run inference via Docker ─────────────────────────────────────
+    # ── Task 6: Run inference via Docker ─────────────────────────────────────
     def run_inference(**context):
         run_id = context.get("run_id", context["logical_date"].strftime("%Y%m%d_%H%M"))
         cmd = [
             "docker", "run", "--rm",
+            "--network", INFERENCE_DOCKER_NETWORK,
             "-v", f"{PROJECT_ROOT}/data:/app/data:ro",
             "-v", f"{PROJECT_ROOT}/models:/app/models:ro",
             "-e", f"DATABASE_URL={INFERENCE_DB_URL}",
@@ -165,7 +194,7 @@ with DAG(
             INFERENCE_IMAGE,
             "python", "batch_score.py",
             "--news", "/app/data/headlines.csv",
-            "--ohlcv", "/app/data/ohlc_data/merged_ohlc_15min.csv",
+            "--ohlcv", "/app/data/merged_ohlc_15min.csv",
             "--run-id", run_id,
         ]
         _run_shell(cmd, "docker_inference")
@@ -176,12 +205,10 @@ with DAG(
         execution_timeout=timedelta(minutes=15),
     )
 
-    # ── Task 8: DVC add + push input data ────────────────────────────────────
+    # ── Task 7: DVC add + push input data ────────────────────────────────────
     def dvc_push_data(**context):
         headlines_csv = os.path.join(PROJECT_ROOT, "data", "headlines.csv")
-        ohlcv_csv = os.path.join(
-            PROJECT_ROOT, "data", "ohlc_data", "merged_ohlc_15min.csv",
-        )
+        ohlcv_csv = os.path.join(PROJECT_ROOT, "data", "merged_ohlc_15min.csv")
         # dvc add
         _run_shell(
             [PYTHON_BIN, "-m", "dvc", "add", headlines_csv, ohlcv_csv],
@@ -200,13 +227,12 @@ with DAG(
     )
 
     # ── DAG dependency graph ─────────────────────────────────────────────────
-    # 1. Scrape headlines + OHLCV in parallel at 08:30 IST
-    # 2. Wait until 09:11 IST, then scrape pre-open
+    # 1. Scrape headlines + OHLCV in parallel
+    # 2. Scrape pre-open
     # 3. Spark cleanup (headlines + merge pre-open) in parallel
     # 4. Run inference via Docker
     # 5. DVC push input data
-    [task_scrape_headlines, task_scrape_ohlcv] >> task_wait_preopen
-    task_wait_preopen >> task_scrape_preopen
+    [task_scrape_headlines, task_scrape_ohlcv] >> task_scrape_preopen
     task_scrape_preopen >> [task_clean_headlines, task_merge_preopen]
     [task_clean_headlines, task_merge_preopen] >> task_inference
     task_inference >> task_dvc_push

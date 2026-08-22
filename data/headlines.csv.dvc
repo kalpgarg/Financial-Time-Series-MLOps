@@ -1,0 +1,5 @@
+outs:
+- md5: 5cd95efd9d9d824edea77a07357e537c
+  size: 3830972
+  hash: md5
+  path: headlines.csv

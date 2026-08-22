@@ -25,32 +25,32 @@ from scipy.special import softmax
 # 2. PATHS
 # ============================================================
 
-NEWS_PATH = "/content/drive/MyDrive/headlines.csv"
+NEWS_PATH = "data/headlines.csv"
 
-OHLCV_PATH = "/content/drive/MyDrive/merged_ohlc_15min.csv"
+OHLCV_PATH = "data/merged_ohlc_15min.csv"
 
 PCA_PATH = (
-    "/content/drive/MyDrive/finbert_pca.pkl"
+    "models/finbert_pca.pkl"
 
 )
 
 ENCODER_PATH = (
-    "/content/drive/MyDrive/symbol_encoder.pkl"
+    "models/symbol_encoder.pkl"
 
 )
 
 FEATURE_COLUMNS_PATH = (
-    "/content/drive/MyDrive/feature_columns.pkl"
+    "models/feature_columns.pkl"
 
 )
 
 MODEL_PATH = (
-    "/content/drive/MyDrive/xgboost_model.pkl"
+    "models/xgboost_model.pkl"
 
 )
 
 OUTPUT_PATH = (
-    "/content/drive/MyDrive/latest_predictions.csv"
+    "output/latest_predictions.csv"
 
 )
 

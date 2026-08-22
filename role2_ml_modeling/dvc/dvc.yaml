@@ -1,22 +1,7 @@
-# DVC pipeline definition for data versioning
-# Tracks training dataset iterations as Role 1 updates them
+# DVC pipeline definition
+# Inference is now handled by role3 batch_score.py via the Airflow DAG.
+# This file retains only the manual data-pull stage for local development.
 
 stages:
   pull_data:
-    cmd: dvc pull
-    deps:
-      - data/raw
-    outs:
-      - data/processed
-
-  train:
-    cmd: python -m role2_ml_modeling.training.train
-    deps:
-      - data/processed
-      - role2_ml_modeling/training/train.py
-      - role2_ml_modeling/features/feature_engineering.py
-    outs:
-      - models/model.pkl
-    metrics:
-      - metrics.json:
-          cache: false
+    cmd: dvc pull data/headlines.csv.dvc data/merged_ohlc_15min.csv.dvc

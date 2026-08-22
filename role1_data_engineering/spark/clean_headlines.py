@@ -1,45 +1,53 @@
 """
-PySpark job: reads raw headlines from the raw_headlines PostgreSQL table,
-cleans text (lowercase, strip HTML entities, deduplicate by headline_id),
-and writes the results to the clean_headlines table.
+Clean raw scraped headlines and write a deduplicated, cleaned CSV.
+
+Reads data/stock_news/headlines.csv (raw scraper output), applies text
+cleaning (lowercase, strip HTML tags/entities, collapse whitespace),
+deduplicates by headline_id, and writes the result to data/headlines.csv
+(the DVC-tracked file consumed by the inference pipeline).
 
 Usage:
-    spark-submit role1_data_engineering/spark/clean_headlines.py
+    python -m role1_data_engineering.spark.clean_headlines
 """
 
+import logging
+import os
 import re
 import sys
 from pathlib import Path
 
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql.types import StringType
+import pandas as pd
 
 # ── Resolve project root so shared imports work ──────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from shared.config import (
-    JDBC_URL,
-    POSTGRES_PASSWORD,
-    POSTGRES_USER,
-    SPARK_APP_NAME,
-    SPARK_MASTER,
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+logger = logging.getLogger("clean_headlines")
 
-JDBC_PROPS = {
-    "user": POSTGRES_USER,
-    "password": POSTGRES_PASSWORD,
-    "driver": "org.postgresql.Driver",
-}
+RAW_CSV = os.path.join(PROJECT_ROOT, "data", "stock_news", "headlines.csv")
+CLEAN_CSV = os.path.join(PROJECT_ROOT, "data", "headlines.csv")
+
+OUTPUT_COLUMNS = [
+    "headline_id",
+    "symbol",
+    "published_at",
+    "source",
+    "headline",
+    "article_url",
+    "scraped_at",
+]
 
 
 def clean_text(text: str | None) -> str | None:
     """Lowercase, strip HTML tags/entities, and collapse whitespace."""
-    if text is None:
+    if text is None or (isinstance(text, float) and pd.isna(text)):
         return None
-    text = text.lower()
+    text = str(text).lower()
     text = re.sub(r"<[^>]+>", "", text)           # strip HTML tags
     text = re.sub(r"&[a-z]+;", " ", text)          # strip HTML entities
     text = re.sub(r"\s+", " ", text).strip()       # collapse whitespace
@@ -47,60 +55,39 @@ def clean_text(text: str | None) -> str | None:
 
 
 def main():
-    spark = (
-        SparkSession.builder
-        .master(SPARK_MASTER)
-        .appName(f"{SPARK_APP_NAME}_clean_headlines")
-        .getOrCreate()
-    )
+    if not os.path.exists(RAW_CSV):
+        logger.error("Raw headlines CSV not found: %s", RAW_CSV)
+        sys.exit(1)
 
-    clean_text_udf = F.udf(clean_text, StringType())
+    try:
+        raw_df = pd.read_csv(RAW_CSV, encoding="utf-8-sig")
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        logger.error("Raw headlines CSV is empty or corrupt: %s", RAW_CSV)
+        sys.exit(1)
 
-    # Read raw headlines from PostgreSQL
-    raw_df = (
-        spark.read.jdbc(
-            url=JDBC_URL,
-            table="raw_headlines",
-            properties=JDBC_PROPS,
-        )
-    )
+    if raw_df.empty:
+        logger.warning("No raw headlines to process.")
+        sys.exit(0)
 
-    if raw_df.rdd.isEmpty():
-        print("No raw headlines to process.")
-        spark.stop()
-        return
+    logger.info("Read %d raw headlines from %s", len(raw_df), RAW_CSV)
 
     # Clean text fields
-    cleaned_df = (
-        raw_df
-        .withColumn("headline", clean_text_udf(F.col("headline")))
-        .withColumn("source", clean_text_udf(F.col("source")))
-    )
+    raw_df["headline"] = raw_df["headline"].apply(clean_text)
+    raw_df["source"] = raw_df["source"].apply(clean_text)
 
     # Deduplicate by headline_id (keep first occurrence)
-    deduped_df = cleaned_df.dropDuplicates(["headline_id"])
+    deduped_df = raw_df.drop_duplicates(subset=["headline_id"], keep="first")
 
-    # Select columns matching clean_headlines table schema
-    output_df = deduped_df.select(
-        "headline_id",
-        "symbol",
-        "published_at",
-        "source",
-        "headline",
-        "article_url",
-        "scraped_at",
-    )
+    # Select output columns (ignore any extra columns)
+    available_cols = [c for c in OUTPUT_COLUMNS if c in deduped_df.columns]
+    output_df = deduped_df[available_cols].copy()
 
-    # Write to clean_headlines table (overwrite for idempotency)
-    output_df.write.jdbc(
-        url=JDBC_URL,
-        table="clean_headlines",
-        mode="overwrite",
-        properties=JDBC_PROPS,
-    )
+    # Write cleaned CSV
+    os.makedirs(os.path.dirname(CLEAN_CSV), exist_ok=True)
+    with open(CLEAN_CSV, "w", encoding="utf-8-sig", newline="") as f:
+        output_df.to_csv(f, index=False, header=True)
 
-    print(f"Wrote {output_df.count()} clean headlines to PostgreSQL.")
-    spark.stop()
+    logger.info("Wrote %d clean headlines → %s", len(output_df), CLEAN_CSV)
 
 
 if __name__ == "__main__":

@@ -233,6 +233,13 @@ data/processed/
 
 /dvc.lock
 data/*
+!data/*.dvc
+!data/.gitignore
+
+# Prediction output
+output/*
+!output/.gitkeep
+
 # MLflow
 mlruns/
 mlartifacts/
@@ -245,7 +252,7 @@ airflow/*.cfg
 *.DS_Store
 
 # DVC-managed model files
-/xgboost_model.pkl
-/finbert_pca.pkl
-/feature_columns.pkl
-/symbol_encoder.pkl
+*xgboost_model.pkl
+*finbert_pca.pkl
+*feature_columns.pkl
+*symbol_encoder.pkl

@@ -1,0 +1,5 @@
+outs:
+- md5: 83db03cd44bd37a4d66471011480ba0a
+  size: 19938335
+  hash: md5
+  path: merged_ohlc_15min.csv

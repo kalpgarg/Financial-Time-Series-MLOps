@@ -248,6 +248,7 @@ mlartifacts/
 airflow/logs/
 airflow/*.db
 airflow/*.cfg
+airflow_home/
 
 *.DS_Store
 

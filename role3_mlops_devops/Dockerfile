@@ -24,13 +24,20 @@ WORKDIR /app
 # which the slim base image does not ship. Without it, `import torch` fails
 # with "libgomp.so.1: cannot open shared object file".
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Ensure pip trusts system CAs (some Docker VMs lack current root certs).
+RUN pip install --upgrade certifi pip
 
 # CPU-only torch, from PyTorch's CPU index. torch is deliberately absent from
 # requirements.txt so the next step cannot replace this with the ~2GB CUDA
 # build (which would drag in nvidia-* packages and bloat the image).
-RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
+RUN pip install --index-url https://download.pytorch.org/whl/cpu \
+    --trusted-host download.pytorch.org \
+    --trusted-host download-r2.pytorch.org \
+    torch==2.13.0
 
 COPY requirements.txt .
 # Install, then purge any CUDA packages. xgboost's Linux wheel pulls

@@ -66,7 +66,7 @@ with DAG(
 
     # ── Task 1: Scrape headlines → CSV ───────────────────────────────────────
     def scrape_headlines(**context):
-        ts = context["execution_date"].strftime("%Y%m%d_%H%M")
+        ts = context["logical_date"].strftime("%Y%m%d_%H%M")
         output_path = os.path.join(PROJECT_ROOT, "data", "stock_news", f"headlines_{ts}.csv")
         _run_module(
             "role1_data_engineering.scrapers.headline_scraper",

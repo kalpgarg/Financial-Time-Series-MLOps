@@ -19,7 +19,7 @@ else
 fi
 
 # Ensure the Telegram variables are available
-if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ] || [ -z "$DISCORD_WEBHOOK_URL" ]; then
+if [ -z "$DISCORD_WEBHOOK_URL" ]; then
     echo "Error: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID or DISCORD_WEBHOOK_URL is missing from .env" >> "$LOGFILE"
     exit 1
 fi
@@ -45,15 +45,15 @@ fi
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 # Send Summary text via Telegram
-curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-    -d chat_id="${TELEGRAM_CHAT_ID}" \
-    -d text="${TG_SUMMARY}" \
-    -d parse_mode="Markdown" > /dev/null
+# curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+#     -d chat_id="${TELEGRAM_CHAT_ID}" \
+#     -d text="${TG_SUMMARY}" \
+#     -d parse_mode="Markdown" > /dev/null
 
-# Send the Log File as a document
-curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-    -F chat_id="${TELEGRAM_CHAT_ID}" \
-    -F document=@"$LOGFILE" > /dev/null
+# # Send the Log File as a document
+# curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+#     -F chat_id="${TELEGRAM_CHAT_ID}" \
+#     -F document=@"$LOGFILE" > /dev/null
 
 # ── Discord ───────────────────────────────────────────────────────────────────
 if [ -n "$DISCORD_WEBHOOK_URL" ]; then

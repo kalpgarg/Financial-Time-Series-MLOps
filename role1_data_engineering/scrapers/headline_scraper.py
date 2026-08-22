@@ -362,13 +362,15 @@ def append_to_csv(records: list[dict], csv_path: str) -> str:
     return csv_path
 
 
-async def main(dry_run: bool = False):
+async def main(dry_run: bool = False, output_path: str | None = None):
+    csv_path = output_path or HEADLINES_CSV_PATH
+
     stocks_df = load_stock_list(STOCK_LIST_CSV_PATH)
     if stocks_df.empty:
         logger.error("No stocks with Groww_name found in %s. Exiting.", STOCK_LIST_CSV_PATH)
         return
 
-    _, per_stock_latest = load_existing_csv(HEADLINES_CSV_PATH)
+    _, per_stock_latest = load_existing_csv(csv_path)
     headlines = await scrape_all(stocks_df, per_stock_latest)
 
     if not headlines:
@@ -380,7 +382,7 @@ async def main(dry_run: bool = False):
             print(json.dumps(h, indent=2))
         return
 
-    append_to_csv(headlines, HEADLINES_CSV_PATH)
+    append_to_csv(headlines, csv_path)
 
 
 if __name__ == "__main__":
@@ -390,5 +392,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Print headlines to stdout instead of writing CSV",
     )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Custom output CSV path (default: data/stock_news/headlines.csv)",
+    )
     args = parser.parse_args()
-    asyncio.run(main(dry_run=args.dry_run))
+    asyncio.run(main(dry_run=args.dry_run, output_path=args.output))

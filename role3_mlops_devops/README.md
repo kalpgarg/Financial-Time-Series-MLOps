@@ -4,8 +4,22 @@ Serving layer for the MLOps end-term project. Predicts a direction class —
 `Negative` / `Neutral` / `Positive` — for each Nifty 50 constituent, with class
 probabilities and a confidence score.
 
-This repository covers **Deployment (6)**, **Monitoring (7)** and **CI/CD (8)**.
-Data ingestion, preprocessing and model training live in the team repository.
+This role covers **Deployment (6)**, **Monitoring (7)** and **CI/CD (8)**.
+Data ingestion, preprocessing and model training live in Roles 1 and 2.
+
+## Dependencies on other roles
+
+- **Consumes Role 2's artifacts** — `finbert_pca.pkl`, `symbol_encoder.pkl`,
+  `feature_columns.pkl`, `xgboost_model.pkl` — read from the DVC-tracked
+  `models/` directory (mounted at runtime); serving versions are pinned to match
+  the training environment.
+- **Consumes Role 1's data** — the cleaned `headlines.csv` and
+  `merged_ohlc_15min.csv` feed `batch_score.py`.
+- **Invoked by Role 1's inference DAG**, whose `run_inference` task runs this
+  service's image (`fints-api:latest`) to score all constituents and write to the
+  predictions database.
+
+See the [root README](../README.md) for running the whole system together.
 
 ## The model
 

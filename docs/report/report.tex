@@ -347,16 +347,110 @@ MLflow experiment tracking. To be completed by the ML modelling team member.}
 \label{sec:deployment}
 % ============================================================================
 
-% TODO: Fill in with role3 content.
-% Suggested subsections:
-%   6.1 Docker Image (CPU-only torch, baked FinBERT, non-root)
-%   6.2 Docker Compose Stack (API + Postgres + Prometheus)
-%   6.3 FastAPI Endpoints (/health, POST /predict, GET /predictions)
-%   6.4 Batch Scoring (batch_score.py, Airflow integration)
+The trained model is served as a containerised \textbf{FastAPI} application
+backed by \textbf{PostgreSQL} and orchestrated with the rest of the system via
+\textbf{Docker Compose}. What is served is not a single estimator but the
+five-stage pipeline (FinBERT $\to$ PCA $\to$ news aggregation $\to$ OHLCV
+features $\to$ XGBoost) producing a three-class direction
+(Negative / Neutral / Positive) with class probabilities.
 
-\textit{This section will describe the Docker containerisation strategy,
-FastAPI serving layer, batch scoring integration with Airflow, and the
-Postgres prediction store. To be completed by the MLOps team member.}
+\subsection{Serving Architecture: Two Paths, One Scoring Module}
+
+Predictions are produced through two paths that share a \emph{single} scoring
+implementation (\texttt{app/pipeline.py}) --- a deliberate choice that prevents
+batch/online and train/serve skew:
+
+\begin{itemize}[nosep]
+  \item \textbf{Batch scoring (authoritative).} Once per trading day the Airflow
+        inference DAG runs \texttt{batch\_score.py}, scoring all 50 constituents
+        and writing the results to the database. This is the source of truth
+        served to consumers.
+  \item \textbf{On-demand API} (\texttt{POST /predict}). A single symbol is
+        scored live from data supplied in the request, so the model is genuinely
+        \emph{served}, not merely executed inside a DAG.
+\end{itemize}
+
+\paragraph{Why batch-first.} FinBERT inference over the news of all constituents
+is compute-heavy (seconds-to-minutes on CPU) and cannot run synchronously inside
+an HTTP request without timeouts; predictions are also deterministic per trading
+day over a fixed universe. Precomputing once and serving reads decouples model
+execution from request serving, yields constant-time reads, and produces a
+durable, auditable prediction history.
+
+\subsection{FastAPI Endpoints}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lp{9.5cm}@{}}
+\toprule
+\textbf{Endpoint} & \textbf{Purpose} \\
+\midrule
+\texttt{POST /predict}     & Score one symbol on demand from raw news + OHLCV; records the inference \\
+\texttt{GET /predictions}  & Read the authoritative daily batch predictions (consumer endpoint) \\
+\texttt{GET /health}       & Liveness probe: model-loaded status, model version, database connectivity \\
+\texttt{GET /metrics}      & Prometheus metrics (Section~\ref{sec:monitoring}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Request and response payloads are validated with \textbf{Pydantic}, so a
+mismatch between the data pipeline and the model fails loudly at the boundary
+(HTTP~422) rather than producing a silent, incorrect prediction.
+
+\subsection{Prediction Store}
+
+Predictions are written to two deliberately separate tables:
+
+\begin{itemize}[nosep]
+  \item \texttt{pipeline\_predictions} --- the authoritative daily batch output,
+        one row per \texttt{(symbol, date)} enforced by a \texttt{UNIQUE}
+        constraint and written with an \textbf{upsert}. This makes the Airflow
+        scoring task \textbf{idempotent} (a retry updates rather than
+        duplicates) and carries \texttt{run\_id} to trace each row to a pipeline
+        run.
+  \item \texttt{api\_predictions} --- ad-hoc \texttt{POST /predict} inferences,
+        carrying \texttt{request\_id} and \texttt{latency\_ms}, kept separate so
+        ad-hoc calls cannot pollute the authoritative history.
+\end{itemize}
+
+Both tables store the three class probabilities, \texttt{model\_version}, and a
+timezone-aware timestamp. SQLite is used for local development and PostgreSQL in
+the deployed stack; the same code path (including the dialect-agnostic upsert)
+works on both.
+
+\subsection{Docker Containerisation}
+
+A \textbf{single multi-stage \texttt{Dockerfile}} defines three purpose-built
+images so the API's dependencies never collide with Airflow's or MLflow's:
+
+\begin{itemize}[nosep]
+  \item \texttt{api} --- the FastAPI service on \texttt{python:3.12-slim}, with
+        \textbf{CPU-only PyTorch} (installed from PyTorch's CPU index to avoid a
+        multi-GB CUDA build), the \textbf{FinBERT weights baked in} at build time
+        (fully offline at runtime), a \textbf{non-root} user, and a
+        \texttt{HEALTHCHECK} on \texttt{/health}.
+  \item \texttt{airflow} --- the orchestrator image (official Airflow + PySpark + DVC).
+  \item \texttt{mlflow} --- the experiment-tracking server.
+\end{itemize}
+
+A root \texttt{docker-compose.yml} brings up the whole system with a single
+\texttt{docker compose up} --- the API, PostgreSQL, Prometheus, MLflow, and
+Airflow (webserver + scheduler) --- with the API gated on the database's health
+check so the first request never races an unready database. The exposed UIs are
+the API docs (\texttt{:8000/docs}), Prometheus (\texttt{:9090}), MLflow
+(\texttt{:5000}), and Airflow (\texttt{:8080}).
+
+\subsection{Artifacts and Reproducibility}
+
+The model artifacts (PCA, symbol encoder, feature-column list, XGBoost model)
+are \textbf{versioned with DVC} and \textbf{mounted into the container at
+runtime} (\texttt{ARTIFACTS\_DIR=/app/models}) rather than baked into the image,
+so a retrained model is served by swapping files and restarting --- no rebuild.
+To guarantee reproducibility, the serving environment is pinned to the exact
+versions the artifacts were trained with (Python~3.12, scikit-learn~1.9.0,
+xgboost~3.4.1); a mismatch would risk silent, incorrect deserialisation. Every
+stored prediction is stamped with \texttt{MODEL\_VERSION} to tie it to the model
+that produced it.
 
 
 % ============================================================================
@@ -364,16 +458,69 @@ Postgres prediction store. To be completed by the MLOps team member.}
 \label{sec:monitoring}
 % ============================================================================
 
-% TODO: Fill in with role3 content.
-% Suggested subsections:
-%   7.1 Prometheus Metrics (latency, request count, class distribution,
-%       confidence)
-%   7.2 Scrape Configuration
-%   7.3 Example PromQL Queries
+Monitoring combines \textbf{Prometheus metrics}, \textbf{structured prediction
+logging}, and \textbf{health checks}, covering three of the options the project
+allows (Prometheus, API latency, prediction logging).
 
-\textit{This section will describe the Prometheus-based monitoring setup,
-the four custom metrics exposed at \texttt{/metrics}, and example PromQL
-queries. To be completed by the MLOps team member.}
+\subsection{Prometheus Metrics}
+
+Every prediction updates four Prometheus signals, exposed at \texttt{GET
+/metrics} in the standard text exposition format:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llp{5.5cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Type} & \textbf{Signal} \\
+\midrule
+\texttt{prediction\_requests\_total}       & counter   & request count and success/error split \\
+\texttt{inference\_latency\_seconds}        & histogram & inference-latency distribution \\
+\texttt{predictions\_by\_direction\_total}  & counter   & predicted-class distribution \\
+\texttt{prediction\_confidence}             & histogram & confidence-score distribution \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The confidence histogram buckets are deliberately fine-grained at the top end
+($\ldots$, 0.9, 0.95, 0.99, 1.0) because the model's confidence skews very high;
+evenly spaced buckets would collapse the distribution into a single bin.
+
+\subsection{Scrape Configuration}
+
+A Prometheus service (configured in
+\texttt{monitoring/prometheus/prometheus.yml}) scrapes the API every 15 seconds
+on the Compose network and is reachable at \texttt{localhost:9090}.
+
+\subsection{Example PromQL Queries}
+
+\begin{lstlisting}[style=yaml, caption={Representative monitoring queries}]
+# Predicted-class mix
+sum by (direction) (predictions_by_direction_total)
+
+# 95th-percentile inference latency
+histogram_quantile(0.95, sum by (le) (rate(inference_latency_seconds_bucket[5m])))
+
+# Error rate
+sum(rate(prediction_requests_total{outcome="error"}[5m]))
+\end{lstlisting}
+
+\subsection{Prediction Logging and Health Checks}
+
+Each \texttt{POST /predict} call emits a structured log record (request id,
+symbol, predicted class, confidence, latency, model version) and is persisted to
+the \texttt{api\_predictions} table with its measured \texttt{latency\_ms},
+giving both operational telemetry and an auditable per-request trail. The
+\texttt{GET /health} endpoint reports model and database status and backs the
+container health check.
+
+\subsection{Drift Detection (Designed; Future Work)}
+
+A feature-drift design was specified but not yet implemented: comparing the
+serving-time feature distribution against a training-time baseline using the
+\textbf{Population Stability Index (PSI)} per feature (thresholds 0.1 / 0.25),
+plus predicted-class drift, surfaced as Prometheus gauges and a \texttt{/drift}
+endpoint. It is deferred pending the training feature matrix from the modelling
+role.
 
 
 % ============================================================================
@@ -381,16 +528,78 @@ queries. To be completed by the MLOps team member.}
 \label{sec:cicd}
 % ============================================================================
 
-% TODO: Fill in with role3 content.
-% Suggested subsections:
-%   8.1 GitHub Actions Workflow (test -> build Docker image)
-%   8.2 Test Strategy
-%   8.3 Image Build and Push
+\subsection{Continuous Integration (GitHub Actions)}
 
-\textit{This section will describe the GitHub Actions CI/CD pipeline: test
-job (pytest across all three roles), Docker image build on main branch
-merges, and planned enhancements (container boot test, /health probe).
-To be completed by the MLOps team member.}
+A GitHub Actions workflow (\texttt{.github/workflows/ci.yml}) acts as a
+\textbf{merge gate}: on every pull request to \texttt{main} and every push to
+\texttt{main}, it sets up Python~3.12, installs a curated test-dependency set,
+and runs the full suite with \texttt{pytest}. With branch protection requiring
+this check, a failing suite blocks the merge.
+
+\begin{lstlisting}[style=yaml, caption={CI workflow (abridged)}]
+on:
+  pull_request: { branches: [main] }
+  push:         { branches: [main] }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements-test.txt
+      - run: pytest -q
+\end{lstlisting}
+
+The workflow installs only the \textbf{light dependencies the tests need}
+(\texttt{requirements-test.txt}) rather than every role's full requirements: the
+heavy libraries (PyTorch, Transformers, Airflow, Crawl4AI) are unnecessary
+because FinBERT is stubbed in tests and other heavy imports are guarded with
+\texttt{importorskip}. This keeps CI fast and reliable.
+
+\subsection{Test Suite}
+
+The suite (39 tests) spans the whole project:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lp{8.5cm}@{}}
+\toprule
+\textbf{Scope} & \textbf{Coverage} \\
+\midrule
+Shared / root & Cross-role data contract and configuration helpers \\
+Role~1 & PySpark text-cleaning logic \\
+Role~2 & Feature engineering (daily aggregation, next-day 09:15 shift,
+  three-class target), model factories, evaluation metrics, and a
+  \textbf{model-artifact contract test} (95 features, 3 classes, 50 symbols,
+  768$\to$50 PCA) \\
+Role~3 & API endpoints, request validation (422 cases), batch idempotency,
+  and the Prometheus metrics \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Tests that require the DVC-tracked model artifacts \textbf{skip automatically
+when the artifacts are absent} (e.g.\ in CI without a \texttt{dvc pull}), so the
+pipeline stays green while still running the full model-dependent tests locally
+where the artifacts are present. The \texttt{.pkl} interface guarantee is
+anchored by the role~2 artifact-contract test.
+
+\subsection{Reproducibility}
+
+The project environment is defined by \texttt{pyproject.toml} (with
+\texttt{uv.lock}) and per-role \texttt{requirements.txt} files; data and models
+are versioned with DVC; and the serving library versions are pinned to match the
+training environment. CI runs on the same Python version (3.12) as the deployed
+container.
+
+\subsection{Continuous Delivery (Extension)}
+
+The current pipeline implements the CI (test-gate) half. The delivery half --- a
+job that builds the Docker image on merges to \texttt{main} --- is a
+straightforward extension: the API image builds without the artifacts (they are
+mounted at runtime), so it is feasible in CI, with the only cost being the
+FinBERT download during the build.
 
 
 % ============================================================================
@@ -418,8 +627,35 @@ the ML modelling team member.}
 
 \begin{enumerate}
 
+  \item \textbf{Train/serve version alignment.} The retrained artifacts were
+        produced with newer libraries (scikit-learn~1.9.0, xgboost~3.4.1,
+        Python~3.12) than the serving image initially pinned. Loading across
+        versions raised \texttt{InconsistentVersionWarning} and an xgboost
+        pickle warning, with a real risk of silently incorrect deserialisation.
+        Resolved by aligning the serving environment to the training versions
+        (which required moving the API image to Python~3.12, since xgboost~3.4.x
+        requires it).
 
-  % TODO: Add more challenges from role2/role3 as needed.
+  \item \textbf{Feature-construction skew.} The serving pipeline initially
+        reproduced the training notebook's two-day shift of the 09:15 features,
+        which the modelling role later corrected to a single-day shift; the
+        serving code was realigned to match, avoiding train/serve skew.
+
+  \item \textbf{Heavy dependencies in CI.} Running the full cross-role
+        dependency set in CI is slow and fragile; this was solved with a curated
+        test-dependency set, a stubbed FinBERT, and \texttt{importorskip} guards.
+
+  \item \textbf{Model artifacts unavailable in CI.} The artifacts are
+        DVC-tracked and the remote is unreachable from CI; model-dependent tests
+        were made to skip gracefully, with the \texttt{.pkl} interface contract
+        guaranteed by a modelling-role test.
+
+  \item \textbf{Orchestrated inference across containers.} Triggering the
+        Dockerised inference from Airflow required handling Docker-out-of-Docker
+        path resolution (host vs.\ container paths) via an explicit host-path
+        variable.
+
+  % TODO: Add more challenges from role2 as needed.
 \end{enumerate}
 
 

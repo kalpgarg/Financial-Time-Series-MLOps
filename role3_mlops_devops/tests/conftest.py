@@ -25,6 +25,20 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from app import pipeline  # noqa: E402
+from app.config import (  # noqa: E402
+    ENCODER_PATH,
+    FEATURE_COLUMNS_PATH,
+    PCA_PATH,
+    XGB_PATH,
+)
+
+# The model tests load the real .pkl artifacts, which are DVC-tracked (not in
+# git). Where they're absent -- e.g. CI without a DVC pull -- those tests are
+# skipped so the suite still passes; the request-validation tests don't need
+# them. The .pkl interface contract itself is guarded by a role2 test.
+ARTIFACTS_PRESENT = all(
+    p.exists() for p in (PCA_PATH, ENCODER_PATH, FEATURE_COLUMNS_PATH, XGB_PATH)
+)
 
 # Two real Nifty 50 constituents present in the symbol encoder.
 SYMBOL_A = "Reliance Industries"
@@ -49,6 +63,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import db  # noqa: E402
 from app.main import app  # noqa: E402
+
+# Decorator for tests that require the real model artifacts to be present.
+needs_artifacts = pytest.mark.skipif(
+    not ARTIFACTS_PRESENT,
+    reason="model artifacts not present (DVC-tracked); run `dvc pull` to enable",
+)
 
 
 def make_ohlcv(symbol: str, days: int = 35, base: float = 1500.0) -> pd.DataFrame:

@@ -1,0 +1,21 @@
+# Minimal dependencies to run the whole-project test suite (used by CI).
+#
+# Deliberately excludes the heavy libraries the tests don't need -- torch,
+# transformers, apache-airflow, crawl4ai, mlflow, dvc -- because FinBERT is
+# stubbed and those code paths are importorskip-guarded or not collected.
+# Model-artifact tests skip when the DVC-tracked .pkl files are absent (CI).
+
+pytest>=8.3
+python-dotenv>=1.0.0
+pyspark>=3.5.0
+pandas>=2.1
+numpy>=1.26
+scikit-learn>=1.9.0
+joblib>=1.5.3
+xgboost>=3.2.0
+lightgbm>=4.0.0
+fastapi>=0.115.0
+pydantic>=2.10.0
+sqlalchemy>=1.4.36
+httpx==0.28.1            # pinned to avoid the Starlette TestClient deprecation
+prometheus-client>=0.21.0

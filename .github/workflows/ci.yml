@@ -1,16 +1,24 @@
-# GitHub Actions CI/CD workflow
-# See role3_mlops_devops/ci_cd/github_actions/ci.yml for the source of truth
+# CI: run the whole-project test suite as a merge gate.
+#
+# Runs on every PR to main and on pushes to main. Make this check "required"
+# in the repo's branch-protection settings so a red suite blocks the merge.
+#
+# The job installs only the light test dependencies (requirements-test.txt),
+# not every role's full requirements -- FinBERT is stubbed and other heavy
+# libs are importorskip-guarded, so the tests don't need them. Tests that load
+# the DVC-tracked model artifacts skip automatically when those are absent.
 
-name: CI/CD Pipeline
+name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
 
 jobs:
   test:
+    name: Test suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,25 +26,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install test dependencies
         run: |
-          pip install -r role1_data_engineering/requirements.txt
-          pip install -r role2_ml_modeling/requirements.txt
-          pip install -r role3_mlops_devops/requirements.txt
-          pip install pytest
+          python -m pip install --upgrade pip
+          pip install -r requirements-test.txt
 
-      - name: Run tests
-        run: pytest --tb=short -q
-
-  build-and-push:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build Docker image
-        run: |
-          docker build -f role3_mlops_devops/docker/Dockerfile -t fints-api:latest .
+      - name: Run test suite
+        run: pytest -q

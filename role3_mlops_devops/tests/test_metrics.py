@@ -1,5 +1,10 @@
 """Prometheus /metrics endpoint tests (FinBERT stubbed via conftest)."""
 
+from tests.conftest import needs_artifacts
+
+# Both tests issue a prediction, so they need the real model artifacts.
+pytestmark = needs_artifacts
+
 
 def test_metrics_endpoint_exposes_all_four_signals(client, predict_request):
     direction = client.post("/predict", json=predict_request).json()["direction"]

@@ -50,4 +50,8 @@ dev = [
 # role3 pins httpx==0.28.1 in its image, which does not emit this.
 filterwarnings = [
     "ignore:Using .httpx. with .starlette.testclient. is deprecated",
+    # xgboost advisory when a model pickled by a newer xgboost is loaded by an
+    # older one (local Python 3.11 gets xgboost 3.2.0; artifacts are 3.4.x).
+    # Harmless -- the model loads fine, and the container matches versions.
+    "ignore:.*If you are loading a serialized model:UserWarning",
 ]

@@ -10,11 +10,18 @@ import pandas as pd
 
 from app import db
 from batch_score import run_batch
-from tests.conftest import SYMBOL_A, SYMBOL_B, make_news, make_ohlcv
+from tests.conftest import (
+    SYMBOL_A,
+    SYMBOL_B,
+    make_news,
+    make_ohlcv,
+    needs_artifacts,
+)
 
 VALID_DIRECTIONS = {"Negative", "Neutral", "Positive"}
 
 
+@needs_artifacts
 def test_health_reports_model_and_database(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"
@@ -23,6 +30,7 @@ def test_health_reports_model_and_database(client):
     assert body["database"] == "ok"
 
 
+@needs_artifacts
 def test_predict_returns_contract_fields(client, predict_request):
     response = client.post("/predict", json=predict_request)
     assert response.status_code == 200, response.text
@@ -39,6 +47,7 @@ def test_predict_returns_contract_fields(client, predict_request):
     assert body["latency_ms"] >= 0
 
 
+@needs_artifacts
 def test_predict_is_recorded_in_api_predictions_only(client, predict_request):
     request_id = client.post("/predict", json=predict_request).json()["request_id"]
 
@@ -69,6 +78,7 @@ def test_empty_price_list_is_rejected(client, predict_request):
     assert client.post("/predict", json=payload).status_code == 422
 
 
+@needs_artifacts
 def test_unknown_symbol_is_rejected(client):
     """A symbol the encoder never saw must be a client error, not a 500."""
     ohlcv = make_ohlcv("NOT_A_REAL_SYMBOL")
@@ -88,6 +98,7 @@ def _two_symbol_frames():
     return news, ohlcv
 
 
+@needs_artifacts
 def test_batch_scores_all_symbols():
     news, ohlcv = _two_symbol_frames()
     rows = run_batch(news, ohlcv, run_id="run-1")
@@ -97,6 +108,7 @@ def test_batch_scores_all_symbols():
         assert r["run_id"] == "run-1"
 
 
+@needs_artifacts
 def test_batch_rerun_upserts_instead_of_duplicating():
     """An Airflow retry must not create a second row per symbol/date."""
     news, ohlcv = _two_symbol_frames()
@@ -109,6 +121,7 @@ def test_batch_rerun_upserts_instead_of_duplicating():
         assert {r.run_id for r in rows} == {"run-2"}  # latest run wins
 
 
+@needs_artifacts
 def test_predictions_endpoint_serves_batch_rows(client):
     news, ohlcv = _two_symbol_frames()
     run_batch(news, ohlcv, run_id="run-1")

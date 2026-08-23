@@ -1,9 +1,12 @@
-# Role 1 – Data Engineering Lead dependencies
+# Role 1 – Data Engineering dependencies
 pyspark>=3.5.0
 apache-airflow>=2.8.0
 requests>=2.31.0
 pandas>=2.1.0
-pyarrow>=14.0.0
 crawl4ai>=0.6.0
 beautifulsoup4>=4.12.0
-psycopg2-binary>=2.9.9
+tvDatafeed>=2.1.0
+numpy>=1.26.0
+torch>=2.1.0
+transformers>=4.36.0
+scipy>=1.11.0

@@ -104,8 +104,6 @@ Only `GDRIVE_CREDENTIALS_DATA` is required if your DVC remote is Google Drive.
 GDRIVE_CREDENTIALS_DATA=<service-account-json>   # GDrive service-account key
 
 # ── Alerts (optional) ────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
 DISCORD_WEBHOOK_URL=
 
 # ── OHLCV Scraper (optional — default uses TradingView) ──────────────────────

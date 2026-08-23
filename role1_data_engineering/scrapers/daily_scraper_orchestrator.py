@@ -1,7 +1,7 @@
 """
 Daily Scraper Orchestrator:
 Runs all scrapers sequentially, then copies the resulting data folders
-to a cloud-synced directory for backup. Finally, sends a summary report via Telegram.
+to a cloud-synced directory for backup.
 
 Scrapers executed:
 1. headline_scraper.py (Groww news)
@@ -17,8 +17,6 @@ import sys
 import time
 from pathlib import Path
 
-import telebot
-
 # ── Resolve project root ──────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -26,8 +24,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from shared.config import (
     CLOUD_SYNC_DIR,
-    TELEGRAM_BOT_TOKEN,
-    TELEGRAM_CHAT_ID,
     now_local,
 )
 
@@ -111,26 +107,6 @@ def sync_to_cloud(folders: list[str]) -> tuple[bool, str, float]:
         return False, str(e), duration
 
 
-def send_telegram_summary(summary_text: str):
-    """Send a markdown message via Telegram using pyTelegramBotAPI."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logger.warning("Telegram credentials not set. Skipping Telegram alert.")
-        print("\n--- TELEGRAM MESSAGE (Dry Run) ---\n" + summary_text + "\n----------------------------------")
-        return
-
-    try:
-        bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
-        bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=summary_text,
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-        )
-        logger.info("Telegram summary sent successfully.")
-    except Exception as e:
-        logger.error("Failed to send Telegram message: %s", e)
-
-
 def main():
     logger.info("Starting daily scraper orchestration...")
     
@@ -180,7 +156,7 @@ def main():
     report_lines.append(f"\n*Overall Status*: {'✅ SUCCESS' if all_success else '❌ FAILED'}")
     
     summary_text = "\n".join(report_lines)
-    send_telegram_summary(summary_text)
+    logger.info("Pipeline summary:\n%s", summary_text)
 
     if not all_success:
         sys.exit(1)

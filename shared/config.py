@@ -32,10 +32,6 @@ JDBC_URL = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 # ── Data Sync ────────────────────────────────────────────────────────────
 CLOUD_SYNC_DIR = os.getenv("CLOUD_SYNC_DIR", "/Users/kgarg/extras/personal_stuff/03_Resources/stock_data")
 
-# ── Telegram Alerts ───────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
 # ── Discord Alerts ───────────────────────────────────────────────────────────
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 

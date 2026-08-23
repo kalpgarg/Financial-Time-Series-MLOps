@@ -6,8 +6,9 @@ Task graph (all tasks run back-to-back, no time gates):
   2. Scrape NSE F&O pre-open data
   3. Spark: clean headlines → data/headlines.csv
      Spark: merge pre-open 09:15 bar → merged_ohlc_15min.csv
-  4. Docker: run batch_score.py (role3 inference image)
-  5. DVC: add + push headlines.csv & merged_ohlc_15min.csv
+  4. Spark: trim to minimal date window → data/inference/
+  5. Docker: run batch_score.py on trimmed data (role3 inference image)
+  6. DVC: add + push headlines.csv & merged_ohlc_15min.csv
 
 Schedule: @once (manual trigger for testing)
 
@@ -179,13 +180,23 @@ with DAG(
         execution_timeout=timedelta(minutes=5),
     )
 
-    # ── Task 6: Run inference via Docker ─────────────────────────────────────
+    # ── Task 6: Trim data for inference ─────────────────────────────────────
+    def trim_for_inference(**context):
+        _run_module("role1_data_engineering.spark.trim_for_inference")
+
+    task_trim = PythonOperator(
+        task_id="trim_for_inference",
+        python_callable=trim_for_inference,
+        execution_timeout=timedelta(minutes=5),
+    )
+
+    # ── Task 7: Run inference via Docker ─────────────────────────────────────
     def run_inference(**context):
         run_id = context.get("run_id", context["logical_date"].strftime("%Y%m%d_%H%M"))
         cmd = [
             "docker", "run", "--rm",
             "--network", INFERENCE_DOCKER_NETWORK,
-            "-v", f"{PROJECT_ROOT}/data:/app/data:ro",
+            "-v", f"{PROJECT_ROOT}/data/inference:/app/data:ro",
             "-v", f"{PROJECT_ROOT}/models:/app/models:ro",
             "-e", f"DATABASE_URL={INFERENCE_DB_URL}",
             "-e", "TRANSFORMERS_OFFLINE=1",
@@ -194,7 +205,7 @@ with DAG(
             INFERENCE_IMAGE,
             "python", "batch_score.py",
             "--news", "/app/data/headlines.csv",
-            "--ohlcv", "/app/data/merged_ohlc_15min.csv",
+            "--ohlcv", "/app/data/ohlcv_15min.csv",
             "--run-id", run_id,
         ]
         _run_shell(cmd, "docker_inference")
@@ -205,7 +216,7 @@ with DAG(
         execution_timeout=timedelta(minutes=15),
     )
 
-    # ── Task 7: DVC add + push input data ────────────────────────────────────
+    # ── Task 8: DVC add + push input data ────────────────────────────────────
     def dvc_push_data(**context):
         headlines_csv = os.path.join(PROJECT_ROOT, "data", "headlines.csv")
         ohlcv_csv = os.path.join(PROJECT_ROOT, "data", "merged_ohlc_15min.csv")
@@ -230,9 +241,11 @@ with DAG(
     # 1. Scrape headlines + OHLCV in parallel
     # 2. Scrape pre-open
     # 3. Spark cleanup (headlines + merge pre-open) in parallel
-    # 4. Run inference via Docker
-    # 5. DVC push input data
+    # 4. Spark trim → data/inference/ (minimal window for Docker)
+    # 5. Run inference via Docker (reads trimmed data only)
+    # 6. DVC push full input data
     [task_scrape_headlines, task_scrape_ohlcv] >> task_scrape_preopen
     task_scrape_preopen >> [task_clean_headlines, task_merge_preopen]
-    [task_clean_headlines, task_merge_preopen] >> task_inference
+    [task_clean_headlines, task_merge_preopen] >> task_trim
+    task_trim >> task_inference
     task_inference >> task_dvc_push

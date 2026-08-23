@@ -1,0 +1,446 @@
+% ============================================================================
+% Financial Time-Series MLOps — Technical Report
+% ============================================================================
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ─────────────────────────────────────────────────────────────────
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{float}
+
+% ── Listings style ───────────────────────────────────────────────────────────
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{codeframe}{RGB}{200,200,200}
+\definecolor{keyword}{RGB}{0,0,180}
+\definecolor{comment}{RGB}{80,120,80}
+\definecolor{string}{RGB}{180,0,0}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  keywordstyle=\color{keyword}\bfseries,
+  commentstyle=\color{comment}\itshape,
+  stringstyle=\color{string},
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  tabsize=4,
+  captionpos=b,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+}
+
+\lstdefinestyle{python}{language=Python}
+\lstdefinestyle{yaml}{language={},%
+  morekeywords={stages,cmd,services,image,environment,ports,volumes,depends_on,build,healthcheck}
+}
+\lstdefinestyle{ascii}{language={},numbers=none}
+
+% ── Metadata ─────────────────────────────────────────────────────────────────
+\title{%
+  \textbf{Financial Time-Series MLOps}\\[6pt]
+  \large Predicting Next-Day Market-Open Direction\\
+  for NSE F\&O Stocks Using OHLCV and News Sentiment
+}
+\author{
+  Student Name\\
+  Roll Number\\[4pt]
+  \textit{MLOps Course End-Term Project}
+}
+\date{\today}
+
+% ============================================================================
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Problem Statement}
+% ============================================================================
+
+This project builds an end-to-end MLOps pipeline to predict the
+\textbf{next-day market-open price direction} (Bullish / Bearish / Neutral)
+for 50 NSE Futures \& Options (F\&O) constituent stocks.
+
+The prediction target is a three-class variable derived from the return
+between the next day's 09:15~AM opening price and its closing price.
+A return exceeding $+0.3\%$ is labelled \emph{Positive}, below $-0.3\%$ is
+\emph{Negative}, and anything in between is \emph{Neutral}.
+
+The system ingests two complementary data streams:
+\begin{enumerate}[nosep]
+  \item \textbf{OHLCV price data} — 15-minute intraday bars from TradingView,
+        aggregated into daily candles with rolling technical indicators.
+  \item \textbf{Financial news headlines} — scraped from Groww using Crawl4AI,
+        enriched with FinBERT (ProsusAI/finbert) sentiment probabilities and
+        768-dimensional CLS embeddings, then PCA-reduced and aggregated with
+        exponential-decay rolling windows.
+\end{enumerate}
+
+The merged feature set (95 features) feeds an XGBoost / LightGBM classifier
+trained with TimeSeriesSplit cross-validation and tracked via MLflow.
+The best model is served through a containerised FastAPI endpoint and monitored
+with Prometheus metrics.
+
+\paragraph{Minimum expected scope covered.}
+\begin{itemize}[nosep]
+  \item Automated pipeline using \textbf{Airflow} (inference and training DAGs).
+  \item Additional data-engineering tool: \textbf{PySpark} (headline cleaning, pre-open merge).
+  \item Data preprocessing workflow (scraping $\to$ Spark cleaning $\to$ FinBERT $\to$ feature engineering).
+  \item Training and comparison of \textbf{two models} (XGBoost and LightGBM).
+\end{itemize}
+
+
+% ============================================================================
+\section{Dataset Description}
+% ============================================================================
+
+All data is stored as DVC-tracked CSV files in the repository's \texttt{data/}
+directory.
+
+\subsection{Stock Universe}
+
+The universe comprises \textbf{50 NSE F\&O stocks} listed in
+\texttt{data/stock\_list.csv}. Each row maps a company name
+(\texttt{Stock\_name}) to its TradingView identifier, Groww slug, and NSE
+symbol.
+
+\subsection{OHLCV Price Data}
+
+\begin{table}[H]
+\centering
+\caption{OHLCV data files}
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{File} & \textbf{Granularity} & \textbf{Description} \\
+\midrule
+\texttt{merged\_ohlc\_15min.csv} & 15-minute & Intraday bars for all 50 stocks.
+  Columns: \texttt{symbol}, \texttt{datetime}, \texttt{open}, \texttt{high},
+  \texttt{low}, \texttt{close}, \texttt{volume}. \\
+\texttt{ohlc\_data/<stock>.csv} & 15-min / daily & Per-stock raw files (daily
+  and 15-min), merged into the above. \\
+\texttt{preopen\_csv/} & Point-in-time & NSE F\&O pre-open auction data,
+  one dated CSV per trading day. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+OHLCV data is fetched via the TradingView data feed (\texttt{tvDatafeed}
+library). Each stock has up to 10\,000 historical 15-minute bars
+($\sim$2 years). The scraper supports incremental updates, fetching only
+bars newer than the latest timestamp in the existing CSV.
+
+\subsection{News Headlines}
+
+\begin{table}[H]
+\centering
+\caption{Headline data files}
+\begin{tabular}{@{}lp{9cm}@{}}
+\toprule
+\textbf{File} & \textbf{Description} \\
+\midrule
+\texttt{stock\_news/headlines.csv} & Raw scraped headlines (Crawl4AI from Groww).
+  Columns: \texttt{headline\_id}, \texttt{symbol}, \texttt{published\_at},
+  \texttt{source}, \texttt{headline}, \texttt{article\_url},
+  \texttt{scraped\_at}. \\
+\texttt{headlines.csv} & Cleaned and deduplicated headlines (PySpark output, DVC-tracked). \\
+\texttt{headlines\_enriched.csv} & FinBERT-enriched: \texttt{positive\_prob},
+  \texttt{negative\_prob}, \texttt{neutral\_prob}, \texttt{sentiment\_score},
+  \texttt{sentiment\_label}. \\
+\texttt{headlines\_enriched.embeddings.npy} & 768-d FinBERT CLS embeddings
+  (NumPy binary). \\
+\texttt{news\_features.csv} & PCA-reduced (50-d) + 7-day rolling aggregated
+  sentiment features per (symbol, date). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Data Contracts}
+
+All inter-role data exchange is governed by dataclass schemas defined in
+\texttt{shared/schemas/data\_contract.py}:
+
+\begin{lstlisting}[style=python, caption={Core data-contract schemas}]
+@dataclass
+class PriceRecord:
+    symbol: str       # e.g. "Reliance Industries"
+    date: str         # ISO-8601 date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+@dataclass
+class HeadlineRecord:
+    headline_id: str
+    symbol: str
+    published_at: str # ISO-8601 datetime
+    source: str
+    headline: str
+    author: Optional[str] = None
+    body_snippet: Optional[str] = None
+\end{lstlisting}
+
+
+% ============================================================================
+\section{System Architecture}
+% ============================================================================
+
+The project is organised into three roles, each with its own directory,
+dependencies, and Airflow DAGs:
+
+\begin{table}[H]
+\centering
+\caption{Role decomposition}
+\begin{tabular}{@{}clp{7.5cm}@{}}
+\toprule
+\textbf{Role} & \textbf{Directory} & \textbf{Responsibility} \\
+\midrule
+1 & \texttt{role1\_data\_engineering/} & Scraping, PySpark cleaning, Airflow
+  orchestration, DVC data versioning \\
+2 & \texttt{role2\_ml\_modeling/}      & Feature engineering, model training
+  (XGBoost / LightGBM), MLflow experiment tracking \\
+3 & \texttt{role3\_mlops\_devops/}     & FastAPI serving, Docker containerisation,
+  Prometheus monitoring, CI/CD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Shared configuration lives in \texttt{shared/config.py} (environment-variable
+driven, timezone-aware) and data contracts in
+\texttt{shared/schemas/data\_contract.py}.
+
+\subsection{High-Level Data Flow}
+
+\begin{lstlisting}[style=ascii, caption={End-to-end data flow}]
+  Scrapers (role1)              PySpark (role1)           ML Pipeline (role2)
+  +-----------------+          +----------------+        +-----------------+
+  | headline_scraper|--CSV---->| clean_headlines|--CSV-->| finbert_infer.  |
+  | ohlc_scraper    |--CSV--+  | merge_preopen  |--CSV-->| sentiment_feat. |
+  | nse_preopen     |--CSV--+  +----------------+        | feature_eng.    |
+  +-----------------+     |         |                     | train.py        |
+                          +--DVC--->+                     +--------+--------+
+                                                                  |
+                   Serving (role3)                                 |
+                   +------------------+                   .pkl artifacts
+                   | FastAPI + Docker |<-----DVC----------(DVC-tracked)
+                   | batch_score.py   |
+                   | Prometheus       |
+                   +------------------+
+\end{lstlisting}
+
+\subsection{Orchestration}
+
+Two Airflow DAGs drive the system:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Inference DAG} (\texttt{financial\_ts\_inference\_pipeline}) —
+        daily at 08:30~IST: scrape $\to$ Spark cleanup $\to$ Docker inference
+        $\to$ DVC push.
+  \item \textbf{Training DAG} (\texttt{financial\_ts\_training\_pipeline}) —
+        manual or periodic: FinBERT $\to$ sentiment features $\to$ feature
+        engineering $\to$ parallel XGBoost/LightGBM sweeps $\to$ DVC push models.
+\end{enumerate}
+
+\subsection{Data and Model Versioning}
+
+DVC (Data Version Control) tracks all large artefacts:
+\begin{itemize}[nosep]
+  \item \texttt{data/headlines.csv.dvc}, \texttt{data/merged\_ohlc\_15min.csv.dvc}
+  \item \texttt{models/*.pkl.dvc} (XGBoost, LightGBM, PCA, encoder, feature columns)
+\end{itemize}
+The DVC remote is Google Drive (service-account authentication).
+Model versions are git-tagged (\texttt{model-v1}, \texttt{model-v2}).
+
+
+% ============================================================================
+\section{Data Pipeline}
+\label{sec:data-pipeline}
+% ============================================================================
+
+\subsection{Scrapers}
+
+Four modules ingest raw data daily. All support incremental updates.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lllp{5.8cm}@{}}
+\toprule
+\textbf{Module} & \textbf{Source} & \textbf{Output} & \textbf{Notes} \\
+\midrule
+\texttt{headline\_scraper} & Groww (Crawl4AI) & \texttt{stock\_news/headlines.csv}
+  & Async headless browser; MD5-based \texttt{headline\_id} for dedup \\
+\texttt{ohlc\_scraper} & TradingView & \texttt{merged\_ohlc\_15min.csv}
+  & Up to 10k 15-min bars/stock; per-stock CSVs merged \\
+\texttt{nse\_preopen\_scraper} & NSE API & \texttt{preopen\_csv/*.csv}
+  & F\&O pre-open auction; exponential-backoff retries \\
+\texttt{finbert\_inference} & ProsusAI/finbert & enriched CSV + \texttt{.npy}
+  & Batched sentiment probs + 768-d CLS embeddings;
+    $s = (p_+ - p_-)(1 - p_0)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{PySpark Processing}
+
+Two PySpark jobs run in \texttt{local[*]} mode.
+\textbf{clean\_headlines} applies a UDF (lowercase, strip HTML, collapse
+whitespace), deduplicates by \texttt{headline\_id} via a window function,
+and writes \texttt{data/headlines.csv}.
+\textbf{merge\_preopen} maps NSE tickers to stock names via a Spark join on
+\texttt{stock\_list.csv}, creates synthetic 09:15 OHLCV bars from the pre-open
+data, deduplicates, and appends to \texttt{merged\_ohlc\_15min.csv}.
+A third job, \textbf{trim\_for\_inference}, filters the full CSVs to the
+minimal date window (45-day OHLCV, 10-day headlines) needed by the Docker
+inference container.
+
+\subsection{Airflow Inference DAG}
+
+The DAG \texttt{financial\_ts\_inference\_pipeline} runs daily at 08:30~IST
+with seven tasks:
+scrape headlines + OHLCV (parallel) $\to$ scrape pre-open $\to$
+Spark clean + merge (parallel) $\to$ Spark trim $\to$
+Docker inference (\texttt{batch\_score.py}, trimmed data mounted read-only)
+$\to$ DVC push.
+Each task runs its module via \texttt{subprocess.run()} for import isolation.
+Setting \texttt{SKIP\_SCRAPERS=1} disables live scraping for testing.
+
+
+% ============================================================================
+\section{Model Development}
+\label{sec:model-dev}
+% ============================================================================
+
+% TODO: Fill in with role2 content.
+% Suggested subsections:
+%   5.1 Sentiment Feature Engineering (PCA 768->50, 7-day rolling, decay)
+%   5.2 OHLCV Feature Engineering (daily aggregation, technical indicators,
+%       9:15 features, target creation)
+%   5.3 Model Selection (XGBoost vs LightGBM)
+%   5.4 Training Procedure (TimeSeriesSplit CV, 3 param sets each)
+%   5.5 MLflow Experiment Tracking
+
+\textit{This section will detail the FinBERT $\to$ PCA $\to$ sentiment
+aggregation pipeline, OHLCV technical-indicator feature engineering,
+XGBoost and LightGBM training with TimeSeriesSplit cross-validation, and
+MLflow experiment tracking. To be completed by the ML modelling team member.}
+
+
+% ============================================================================
+\section{Deployment Strategy}
+\label{sec:deployment}
+% ============================================================================
+
+% TODO: Fill in with role3 content.
+% Suggested subsections:
+%   6.1 Docker Image (CPU-only torch, baked FinBERT, non-root)
+%   6.2 Docker Compose Stack (API + Postgres + Prometheus)
+%   6.3 FastAPI Endpoints (/health, POST /predict, GET /predictions)
+%   6.4 Batch Scoring (batch_score.py, Airflow integration)
+
+\textit{This section will describe the Docker containerisation strategy,
+FastAPI serving layer, batch scoring integration with Airflow, and the
+Postgres prediction store. To be completed by the MLOps team member.}
+
+
+% ============================================================================
+\section{Monitoring Strategy}
+\label{sec:monitoring}
+% ============================================================================
+
+% TODO: Fill in with role3 content.
+% Suggested subsections:
+%   7.1 Prometheus Metrics (latency, request count, class distribution,
+%       confidence)
+%   7.2 Scrape Configuration
+%   7.3 Example PromQL Queries
+
+\textit{This section will describe the Prometheus-based monitoring setup,
+the four custom metrics exposed at \texttt{/metrics}, and example PromQL
+queries. To be completed by the MLOps team member.}
+
+
+% ============================================================================
+\section{CI/CD Implementation}
+\label{sec:cicd}
+% ============================================================================
+
+% TODO: Fill in with role3 content.
+% Suggested subsections:
+%   8.1 GitHub Actions Workflow (test -> build Docker image)
+%   8.2 Test Strategy
+%   8.3 Image Build and Push
+
+\textit{This section will describe the GitHub Actions CI/CD pipeline: test
+job (pytest across all three roles), Docker image build on main branch
+merges, and planned enhancements (container boot test, /health probe).
+To be completed by the MLOps team member.}
+
+
+% ============================================================================
+\section{Results and Discussion}
+\label{sec:results}
+% ============================================================================
+
+% TODO: Fill in with role2 content.
+% Suggested subsections:
+%   9.1 Cross-Validation Results (XGBoost F1=0.6631, LightGBM F1=0.6572)
+%   9.2 Per-Class Performance
+%   9.3 Feature Importance
+%   9.4 Discussion
+
+\textit{This section will present the cross-validation results for both
+XGBoost (best F1 = 0.6631) and LightGBM (best F1 = 0.6572), per-class
+metrics, feature importance analysis, and discussion. To be completed by
+the ML modelling team member.}
+
+
+% ============================================================================
+\section{Challenges Faced}
+\label{sec:challenges}
+% ============================================================================
+
+\begin{enumerate}
+
+
+  % TODO: Add more challenges from role2/role3 as needed.
+\end{enumerate}
+
+
+% ============================================================================
+\section{Future Improvements}
+\label{sec:future}
+% ============================================================================
+
+% TODO: Fill in with team input.
+% Suggested items:
+%   - Drift detection against training-time feature baseline
+%   - Minimal frontend over GET /predictions
+%   - Alembic database migrations
+%   - Prometheus Pushgateway for batch job metrics
+%   - Additional data sources (options chain, FII/DII flows)
+
+\textit{This section will outline planned enhancements: data-drift detection,
+a prediction frontend, Alembic migrations, additional data sources, and
+Prometheus Pushgateway integration for batch-job metrics. To be completed
+collaboratively.}
+
+
+% ============================================================================
+\end{document}

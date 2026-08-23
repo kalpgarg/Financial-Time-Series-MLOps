@@ -43,3 +43,11 @@ tvdatafeed = { git = "https://github.com/rongardF/tvdatafeed.git" }
 dev = [
     "pytest>=8.3",
 ]
+
+[tool.pytest.ini_options]
+# Silence a harmless third-party deprecation from Starlette's TestClient
+# (triggered by newer httpx versions). role3's API tests use the TestClient;
+# role3 pins httpx==0.28.1 in its image, which does not emit this.
+filterwarnings = [
+    "ignore:Using .httpx. with .starlette.testclient. is deprecated",
+]

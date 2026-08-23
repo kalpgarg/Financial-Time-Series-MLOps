@@ -12,8 +12,13 @@ Task graph (all tasks run back-to-back, no time gates):
 
 Schedule: @once (manual trigger for testing)
 
-Production: change schedule to '0 3 * * 1-5' and re-add TimeSensor
-before scrape_preopen (target_time=time(3,41) = 09:11 IST).
+SKIP_SCRAPERS=1 (set in the compose stack): run inference on the existing
+DVC-pulled data. The scrape, clean, merge, and DVC-push tasks become no-ops;
+only trim_for_inference and run_inference do work. This makes the DAG runnable
+end-to-end without live scraping or a reachable DVC remote.
+
+Production: set SKIP_SCRAPERS=0, change schedule to '0 3 * * 1-5', and re-add a
+TimeSensor before scrape_preopen (target_time=time(3,41) = 09:11 IST).
 """
 
 import os
@@ -66,6 +71,13 @@ INFERENCE_DB_URL = os.getenv(
     "INFERENCE_DATABASE_URL",
     "postgresql+psycopg2://mlops:mlops@db:5432/predictions",
 )
+
+# Host path of the repo, for the inference `docker run` bind mounts. When this
+# DAG runs INSIDE a container (compose Airflow) talking to the host Docker
+# socket, `-v` paths resolve on the HOST, not in this container -- so we need
+# the host repo path (compose passes HOST_PROJECT_ROOT=${PWD}). When Airflow
+# runs on the host directly, PROJECT_ROOT is already the host path.
+HOST_PROJECT_ROOT = os.getenv("HOST_PROJECT_ROOT", PROJECT_ROOT)
 
 # ── Default args ─────────────────────────────────────────────────────────────
 default_args = {
@@ -162,6 +174,11 @@ with DAG(
 
     # ── Task 4: Spark — clean headlines → data/headlines.csv ─────────────────
     def spark_clean_headlines(**context):
+        if SKIP_SCRAPERS:
+            # No fresh raw scrape this run; cleaning would read the (absent) raw
+            # data/stock_news/headlines.csv. Use the DVC-pulled clean file as-is.
+            print("SKIP_SCRAPERS=1: using existing data/headlines.csv")
+            return
         _run_module("role1_data_engineering.spark.clean_headlines")
 
     task_clean_headlines = PythonOperator(
@@ -172,6 +189,11 @@ with DAG(
 
     # ── Task 5: Merge pre-open into merged_ohlc_15min.csv ────────────────────
     def spark_merge_preopen(**context):
+        if SKIP_SCRAPERS:
+            # No fresh pre-open CSV this run; keep the DVC-pulled
+            # data/merged_ohlc_15min.csv as-is.
+            print("SKIP_SCRAPERS=1: using existing data/merged_ohlc_15min.csv")
+            return
         _run_module("role1_data_engineering.spark.merge_preopen")
 
     task_merge_preopen = PythonOperator(
@@ -196,8 +218,8 @@ with DAG(
         cmd = [
             "docker", "run", "--rm",
             "--network", INFERENCE_DOCKER_NETWORK,
-            "-v", f"{PROJECT_ROOT}/data/inference:/app/data:ro",
-            "-v", f"{PROJECT_ROOT}/models:/app/models:ro",
+            "-v", f"{HOST_PROJECT_ROOT}/data/inference:/app/data:ro",
+            "-v", f"{HOST_PROJECT_ROOT}/models:/app/models:ro",
             "-e", f"DATABASE_URL={INFERENCE_DB_URL}",
             "-e", "TRANSFORMERS_OFFLINE=1",
             "-e", "HF_HUB_OFFLINE=1",
@@ -218,6 +240,11 @@ with DAG(
 
     # ── Task 8: DVC add + push input data ────────────────────────────────────
     def dvc_push_data(**context):
+        if SKIP_SCRAPERS:
+            # No new data was produced this run, and the DVC remote (a local
+            # gdrive mount) isn't reachable from inside the container.
+            print("SKIP_SCRAPERS=1: skipping DVC add/push")
+            return
         headlines_csv = os.path.join(PROJECT_ROOT, "data", "headlines.csv")
         ohlcv_csv = os.path.join(PROJECT_ROOT, "data", "merged_ohlc_15min.csv")
         # dvc add

@@ -193,12 +193,12 @@ def create_target(daily_df, threshold=0.003):
     Returns:
         Same DataFrame with target_return and target columns.
     """
+    # Next-day close per symbol. Using groupby().shift() instead of
+    # groupby().apply(...) keeps this correct across pandas versions
+    # (the apply form raises under pandas 3.x when assigned to one column).
+    next_day_close = daily_df.groupby("symbol")["day_close"].shift(-1)
     daily_df["target_return"] = (
-        daily_df.groupby("symbol", group_keys=False)
-        .apply(
-            lambda x: (x["day_close"].shift(-1) - x["open_915"]) / x["open_915"],
-            include_groups=False,
-        )
+        (next_day_close - daily_df["open_915"]) / daily_df["open_915"]
     )
 
     daily_df["target"] = np.select(

@@ -332,12 +332,17 @@ def _build_ohlcv_features(
         .reset_index()[["symbol", "date", "open", "close"]]
         .rename(columns={"open": "open_915", "close": "close_915"})
     )
-    # NOTE (faithful to training): the notebook shifts this date back two days
-    # before merging. This is reproduced deliberately to match the saved model.
-    # A side effect is that the 09:15 features are NaN for the latest date at
-    # inference time (the "future" bars they would come from do not exist yet);
-    # XGBoost tolerates the NaNs. Flagged for the report -- do not "fix" here.
-    open_915["date"] = open_915["date"] - pd.Timedelta(days=1)
+    # Single-day shift, matching role2's feature_engineering.add_next_day_features
+    # ("single shift -- bug fixed"): attach D+1's 09:15 bar to row D. The current
+    # models are trained this way, so serving must match to avoid train/serve skew.
+    # (The old notebook did a two-day shift; that was the bug role2 corrected.)
+    #
+    # KNOWN LIMITATION: the row for the latest OHLC date still has NaN 09:15
+    # features because its D+1 doesn't exist yet, and that is the row this
+    # function returns. Fully using the 09:15 features at serving requires
+    # predicting the row that carries the most recent *real* 09:15 bar
+    # (latest_date - 1, whose target is latest_date) -- a date-selection change
+    # to align with role2's serving intent. Tracked in the README.
     open_915["date"] = open_915["date"] - pd.Timedelta(days=1)
 
     daily = daily.merge(open_915, on=["symbol", "date"], how="left")

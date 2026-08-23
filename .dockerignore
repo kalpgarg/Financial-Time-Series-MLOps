@@ -1,0 +1,20 @@
+# Keep the build context small. The `api` stage only COPYs role3_mlops_devops/;
+# artifacts and data are mounted at runtime, not built in.
+.git
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+
+# Large data / artifacts (mounted, never copied into images)
+data
+models/*.pkl
+models/*.csv
+models/*.ipynb
+
+# Runtime state
+airflow_home
+**/*.db
+mlruns
+mlartifacts
+**/.DS_Store

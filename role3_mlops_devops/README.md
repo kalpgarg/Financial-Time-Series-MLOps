@@ -273,15 +273,20 @@ re-pin to whatever they were re-exported with.
 
 ## Known limitations & notes
 
-- **All-`Neutral` predictions on the latest date.** The training notebook
-  shifts the 09:15-feature merge date back by two days. Reproduced verbatim here
-  to match the saved model, this makes the five intraday features
-  (`open_915`, `close_915`, `gap_from_prev_close`, `first15_return`,
-  `first15_direction`) **NaN for the prediction date** — the "future" bars they
-  would come from don't exist yet. XGBoost tolerates the NaNs, but with these
-  signals absent the model currently returns `Neutral` at ~0.999 for every
-  symbol. **This is a model/feature-construction issue for the team to review,
-  not an integration bug** — the notebook produces the same output.
+- **09:15-feature shift + latest-date NaN (partly fixed, one part open).**
+  The 09:15 features (`open_915`, `close_915`, `gap_from_prev_close`,
+  `first15_return`, `first15_direction`) are built with a **single**-day shift
+  to match role2's `feature_engineering.add_next_day_features` (the current
+  models are trained that way). The earlier two-day shift — copied from the old
+  notebook — was the bug role2 fixed; role3 now matches.
+  **Still open:** this function returns the row for the *latest* OHLC date,
+  whose 09:15 features are NaN (its D+1 doesn't exist). role2 trains rows as
+  "predict D+1 from D's daily features + D+1's 09:15", so to actually use these
+  features at serving, role3 should predict the row that carries the most recent
+  *real* 09:15 bar (`latest_date - 1`, target `latest_date`) and align the news
+  merge accordingly. Until then the served latest-date row still has NaN 09:15
+  features, so predictions skew toward `Neutral`. Needs Role 2's serving-intent
+  confirmation + a re-validation before changing the date-selection logic.
 - **48 of 50 symbols** are scored on the sample data: two have no bar on the
   latest date and are correctly excluded (can't predict without that day's data).
 - **XGBoost load warning.** The model was pickled rather than saved via

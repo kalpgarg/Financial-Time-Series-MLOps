@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.11-slim
+# Python 3.12 to match the training env (pyproject requires >=3.12) and to
+# allow xgboost 3.4.x, the version the artifacts were trained/saved with.
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

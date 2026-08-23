@@ -154,6 +154,8 @@ activemq-data/
 .venv
 env/
 venv/
+.venv-test
+venv-test/
 ENV/
 env.bak/
 venv.bak/
@@ -257,3 +259,7 @@ airflow_home/
 *finbert_pca.pkl
 *feature_columns.pkl
 *symbol_encoder.pkl
+models/headlines.csv
+models/merged_ohlc_15min.csv
+.gitignore
+models/stock_prediction.ipynb

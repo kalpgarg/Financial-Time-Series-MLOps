@@ -1,0 +1,169 @@
+# Whole-project stack (Option A: one multi-stage Dockerfile + official images).
+#
+#   docker compose up --build
+#
+# UIs after startup:
+#   Airflow    -> http://localhost:8080   (login admin / admin)
+#   MLflow     -> http://localhost:5000
+#   role3 API  -> http://localhost:8000/docs
+#   Prometheus -> http://localhost:9090
+#
+# Scope: all services up, both DAGs loaded and triggerable. Full per-task DAG
+# execution (heavy scrapers/training) is wired incrementally — see DEPLOY.md.
+#
+# Run ONE stack at a time: this reuses ports (5432/8000/9090) that the
+# role3-only compose also uses.
+
+networks:
+  fints-net:
+    name: fints-net          # pinned so the inference DAG's --network matches
+
+volumes:
+  pgdata:
+  mlflow-artifacts:
+  airflow-logs:
+
+# ---- shared Airflow config (used by init / webserver / scheduler) ----
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    target: airflow
+  image: fints-airflow:latest
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://mlops:mlops@db:5432/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/project
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    FINTS_PROJECT_ROOT: /opt/project
+    PYTHONPATH: /opt/project
+    SKIP_SCRAPERS: "1"                 # use existing data; skip live scraping
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    INFERENCE_DOCKER_IMAGE: fints-api:latest
+    INFERENCE_DOCKER_NETWORK: fints-net
+    INFERENCE_DATABASE_URL: postgresql+psycopg2://mlops:mlops@db:5432/predictions
+    # Host path of the repo, so run_inference's `docker run -v` mounts resolve
+    # on the host daemon (not this container). ${PWD} = repo root at `up` time.
+    HOST_PROJECT_ROOT: ${PWD}
+  volumes:
+    - ./:/opt/project                            # repo: DAGs + code + data
+    - airflow-logs:/opt/airflow/logs
+    - /var/run/docker.sock:/var/run/docker.sock  # so run_inference can docker run
+  networks: [fints-net]
+
+services:
+  # ---- Shared Postgres: predictions (API) + airflow + mlflow databases ----
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mlops
+      POSTGRES_PASSWORD: mlops
+      POSTGRES_DB: predictions
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlops -d predictions"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [fints-net]
+
+  # ---- MLflow tracking server + UI ----
+  mlflow:
+    build:
+      context: .
+      target: mlflow
+    image: fints-mlflow:latest
+    command: >
+      mlflow server
+      --host 0.0.0.0 --port 5000
+      --backend-store-uri postgresql://mlops:mlops@db:5432/mlflow
+      --serve-artifacts
+      --artifacts-destination /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [fints-net]
+
+  # ---- role3 prediction API (Deployment + Monitoring) ----
+  api:
+    build:
+      context: .
+      target: api
+    image: fints-api:latest        # name the inference DAG `docker run`s
+    environment:
+      DATABASE_URL: postgresql+psycopg2://mlops:mlops@db:5432/predictions
+      MARKET_TZ: Asia/Kolkata
+      MODEL_VERSION: finbert-pca-xgb-1.0.0
+      ARTIFACTS_DIR: /app/models
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "1"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models:ro      # DVC-pulled artifacts
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [fints-net]
+
+  # ---- Prometheus (scrapes the API /metrics) ----
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./role3_mlops_devops/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks: [fints-net]
+
+  # ---- Airflow: one-shot init (db migrate + admin user) ----
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        airflow db migrate && \
+        airflow users create --username admin --password admin \
+          --firstname Admin --lastname User --role Admin \
+          --email admin@example.com || true
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # ---- Airflow webserver (UI) ----
+  airflow-webserver:
+    <<: *airflow-common
+    command: ["airflow", "webserver"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---- Airflow scheduler ----
+  airflow-scheduler:
+    <<: *airflow-common
+    command: ["airflow", "scheduler"]
+    depends_on:
+      db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped

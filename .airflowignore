@@ -1,0 +1,15 @@
+# The Airflow DAGS_FOLDER is the repo root (so each DAG's PROJECT_ROOT resolves
+# correctly). Airflow imports every .py under it looking for DAGs, so exclude
+# everything that ISN'T a DAG file — especially modules with heavy top-level
+# imports (torch, crawl4ai, pyspark) that would error during DAG parsing.
+# Patterns are regex matched against paths relative to the dags folder.
+role3_mlops_devops
+role1_data_engineering/scrapers
+role1_data_engineering/spark
+role2_ml_modeling/features
+role2_ml_modeling/models
+role2_ml_modeling/training
+role2_ml_modeling/notebooks
+shared
+deploy
+main.py

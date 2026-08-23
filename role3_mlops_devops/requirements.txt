@@ -11,8 +11,8 @@ prometheus-client==0.21.1
 # scikit-learn and xgboost are PINNED to the versions the artifacts were saved
 # with. A mismatch unpickles with an InconsistentVersionWarning and can produce
 # silently wrong results, so do not bump these without re-exported artifacts.
-scikit-learn==1.6.1
-xgboost==3.2.0
+scikit-learn==1.9.0
+xgboost==3.4.1
 joblib==1.5.3
 pandas==3.0.5
 numpy==2.4.6

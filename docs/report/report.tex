@@ -56,8 +56,9 @@
   for NSE F\&O Stocks Using OHLCV and News Sentiment
 }
 \author{
-  Student Name\\
-  Roll Number\\[4pt]
+  Kalp Garg (DA25M573)\\
+  Aditya Gaurav (DA25G502)\\
+  Allenki Laxmi (DA25M541)\\[4pt]
   \textit{MLOps Course End-Term Project}
 }
 \date{\today}
@@ -320,26 +321,6 @@ Docker inference (\texttt{batch\_score.py}, trimmed data mounted read-only)
 $\to$ DVC push.
 Each task runs its module via \texttt{subprocess.run()} for import isolation.
 Setting \texttt{SKIP\_SCRAPERS=1} disables live scraping for testing.
-
-
-% ============================================================================
-\section{Model Development}
-\label{sec:model-dev}
-% ============================================================================
-
-% TODO: Fill in with role2 content.
-% Suggested subsections:
-%   5.1 Sentiment Feature Engineering (PCA 768->50, 7-day rolling, decay)
-%   5.2 OHLCV Feature Engineering (daily aggregation, technical indicators,
-%       9:15 features, target creation)
-%   5.3 Model Selection (XGBoost vs LightGBM)
-%   5.4 Training Procedure (TimeSeriesSplit CV, 3 param sets each)
-%   5.5 MLflow Experiment Tracking
-
-\textit{This section will detail the FinBERT $\to$ PCA $\to$ sentiment
-aggregation pipeline, OHLCV technical-indicator feature engineering,
-XGBoost and LightGBM training with TimeSeriesSplit cross-validation, and
-MLflow experiment tracking. To be completed by the ML modelling team member.}
 
 
 % ============================================================================
@@ -722,19 +703,6 @@ preferred model based on the current evaluation results.
 
 \begin{enumerate}
 
-  \item \textbf{Train/serve version alignment.} The retrained artifacts were
-        produced with newer libraries (scikit-learn~1.9.0, xgboost~3.4.1,
-        Python~3.12) than the serving image initially pinned. Loading across
-        versions raised \texttt{InconsistentVersionWarning} and an xgboost
-        pickle warning, with a real risk of silently incorrect deserialisation.
-        Resolved by aligning the serving environment to the training versions
-        (which required moving the API image to Python~3.12, since xgboost~3.4.x
-        requires it).
-
-  \item \textbf{Feature-construction skew.} The serving pipeline initially
-        reproduced the training notebook's two-day shift of the 09:15 features,
-        which the modelling role later corrected to a single-day shift; the
-        serving code was realigned to match, avoiding train/serve skew.
 
   \item \textbf{Heavy dependencies in CI.} Running the full cross-role
         dependency set in CI is slow and fragile; this was solved with a curated
@@ -745,12 +713,18 @@ preferred model based on the current evaluation results.
         were made to skip gracefully, with the \texttt{.pkl} interface contract
         guaranteed by a modelling-role test.
 
-  \item \textbf{Orchestrated inference across containers.} Triggering the
-        Dockerised inference from Airflow required handling Docker-out-of-Docker
-        path resolution (host vs.\ container paths) via an explicit host-path
-        variable.
+  \item \textbf{FinBERT CPU latency.} FinBERT inference on CPU takes several
+        seconds per batch of 32 headlines, making synchronous single-request
+        scoring marginal for user-facing latency. The batch-first architecture
+        mitigates this for the daily pipeline, but real-time on-demand scoring
+        remains slow without GPU or model distillation.
 
-  % TODO: Add more challenges from role2 as needed.
+
+  \item \textbf{Scraper fragility.} Both Crawl4AI (headless-browser scraping of
+        Groww) and the NSE pre-open API are subject to rate-limiting, layout
+        changes, and intermittent failures. Exponential-backoff retries and
+        incremental updates reduce the impact but do not eliminate it;
+        a prolonged outage produces stale or empty input data.
 \end{enumerate}
 
 
@@ -759,18 +733,28 @@ preferred model based on the current evaluation results.
 \label{sec:future}
 % ============================================================================
 
-% TODO: Fill in with team input.
-% Suggested items:
-%   - Drift detection against training-time feature baseline
-%   - Minimal frontend over GET /predictions
-%   - Alembic database migrations
-%   - Prometheus Pushgateway for batch job metrics
-%   - Additional data sources (options chain, FII/DII flows)
+\begin{enumerate}
 
-\textit{This section will outline planned enhancements: data-drift detection,
-a prediction frontend, Alembic migrations, additional data sources, and
-Prometheus Pushgateway integration for batch-job metrics. To be completed
-collaboratively.}
+
+  \item \textbf{GPU / ONNX FinBERT.} Exporting the FinBERT encoder to ONNX
+        or moving inference to a GPU-backed container would reduce per-batch
+        latency from seconds to milliseconds, enabling true real-time
+        single-request scoring.
+
+  \item \textbf{Additional data sources.} Options-chain data (open interest,
+        implied volatility), FII/DII flow data, and macroeconomic indicators
+        would enrich the feature set and may improve directional accuracy.
+
+  \item \textbf{Automated retraining pipeline.} A scheduled retraining DAG
+        with automatic model promotion (champion/challenger comparison using
+        MLflow's model registry) when the validation macro~F1 exceeds the
+        current champion.
+
+  \item \textbf{Prediction frontend.} A lightweight dashboard (Streamlit or
+        React) over \texttt{GET /predictions} to visualise daily batch
+        predictions, confidence distributions, and historical accuracy.
+
+\end{enumerate}
 
 
 % ============================================================================

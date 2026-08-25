@@ -161,6 +161,10 @@ with DAG(
     start_date=datetime(2026, 8, 22),
     catchup=False,
     tags=["data-engineering", "inference", "role1", "role3"],
+    # Optional: score a specific trading date instead of the latest one. Shows a
+    # form field in the "Trigger DAG w/ config" UI. Also accepts a plain
+    # dag_run.conf value (see run_inference).
+    params={"prediction_date": None},
 ) as dag:
 
     # ── Task 1: Scrape headlines → CSV ───────────────────────────────────────
@@ -290,7 +294,19 @@ with DAG(
     # ── Task 7: Run inference via Docker ─────────────────────────────────────
     def run_inference(**context):
         run_id = context.get("run_id", context["logical_date"].strftime("%Y%m%d_%H%M"))
-        print(f"Starting inference with run_id={run_id}")
+        # Optional: score a specific date instead of the latest one. Provide it
+        # via trigger config, e.g.:
+        #   airflow dags trigger -c '{"prediction_date":"2026-07-07"}' \
+        #       financial_ts_inference_pipeline
+        dag_run = context.get("dag_run")
+        conf = (getattr(dag_run, "conf", None) or {}) if dag_run else {}
+        prediction_date = conf.get("prediction_date") or context.get("params", {}).get(
+            "prediction_date"
+        )
+        print(
+            f"Starting inference with run_id={run_id}, "
+            f"prediction_date={prediction_date or 'latest'}"
+        )
         cmd = [
             "docker", "run", "--rm",
             "--network", INFERENCE_DOCKER_NETWORK,
@@ -306,6 +322,8 @@ with DAG(
             "--ohlcv", "/app/data/ohlcv_15min.csv",
             "--run-id", run_id,
         ]
+        if prediction_date:
+            cmd += ["--date", str(prediction_date)]
         _run_shell(cmd, "docker_inference")
 
     task_inference = PythonOperator(

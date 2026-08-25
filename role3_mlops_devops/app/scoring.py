@@ -49,9 +49,15 @@ def score(
     news_df: pd.DataFrame,
     ohlcv_df: pd.DataFrame,
     embed_fn: Optional[Callable] = None,
+    as_of_date: Optional[str] = None,
 ) -> List[Dict]:
-    """Run the pipeline and return DB-ready rows, one per symbol."""
-    result = pipeline.score_frames(news_df, ohlcv_df, embed_fn=embed_fn)
+    """Run the pipeline and return DB-ready rows, one per symbol.
+
+    ``as_of_date`` (YYYY-MM-DD) scores a specific date instead of the latest one.
+    """
+    result = pipeline.score_frames(
+        news_df, ohlcv_df, embed_fn=embed_fn, as_of_date=as_of_date
+    )
     return [_to_row(rec) for rec in result.to_dict(orient="records")]
 
 

@@ -273,18 +273,30 @@ def _build_news_features(
 
 def _build_ohlcv_features(
     ohlcv_df: pd.DataFrame,
+    as_of_date: Optional[str] = None,
 ) -> Tuple[pd.DataFrame, pd.Timestamp, np.ndarray]:
-    """Daily OHLCV features for the latest available date.
+    """Daily OHLCV features for the target date (latest available by default).
 
     Rolling windows (7/14/30d) need history, so this consumes the full supplied
-    OHLCV frame and only filters to the latest date at the very end.
+    OHLCV frame and only filters to the target date at the very end. If
+    ``as_of_date`` (YYYY-MM-DD) is given, that date is scored instead of the
+    latest one -- useful for backfills and for demoing a date whose 09:15
+    features are populated (i.e. a date that has a following trading day).
     """
     ohlcv = ohlcv_df.copy()
     ohlcv["datetime"] = pd.to_datetime(ohlcv["datetime"], utc=True).dt.tz_localize(None)
     ohlcv["date"] = ohlcv["datetime"].dt.normalize()
     ohlcv = ohlcv.sort_values(["symbol", "date", "datetime"])
 
-    latest_date = ohlcv["date"].max()
+    if as_of_date is None:
+        latest_date = ohlcv["date"].max()
+    else:
+        latest_date = pd.Timestamp(as_of_date).normalize()
+        if latest_date not in set(ohlcv["date"].unique()):
+            raise ValueError(
+                f"no OHLCV data for date {as_of_date}; available range "
+                f"{ohlcv['date'].min().date()} .. {ohlcv['date'].max().date()}"
+            )
     latest_symbols = (
         ohlcv.loc[ohlcv["date"] == latest_date, "symbol"].dropna().unique()
     )
@@ -363,18 +375,22 @@ def score_frames(
     news_df: pd.DataFrame,
     ohlcv_df: pd.DataFrame,
     embed_fn: Optional[Callable] = None,
+    as_of_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Score every symbol present on the latest OHLCV date.
+    """Score every symbol present on the target OHLCV date (latest by default).
 
-    Returns one row per symbol with: symbol, date, prediction label, integer
-    class, the three class probabilities, confidence, and the two headline news
-    features used by the frontend/monitoring.
+    Pass ``as_of_date`` (YYYY-MM-DD) to score a specific date instead of the
+    latest one. Returns one row per symbol with: symbol, date, prediction label,
+    the three class probabilities, confidence, and the two headline news features
+    used by the frontend/monitoring.
     """
     art = load_artifacts()
     encoder, feature_columns, xgb = art["encoder"], art["feature_columns"], art["xgb"]
     embed_fn = embed_fn or embed_headlines
 
-    ohlcv_features, latest_date, latest_symbols = _build_ohlcv_features(ohlcv_df)
+    ohlcv_features, latest_date, latest_symbols = _build_ohlcv_features(
+        ohlcv_df, as_of_date
+    )
     if len(latest_symbols) == 0:
         raise ValueError("no OHLCV rows supplied; cannot determine a prediction date")
 

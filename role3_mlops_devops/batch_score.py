@@ -33,17 +33,23 @@ logger = logging.getLogger("batch_score")
 
 
 def run_batch(
-    news_df: pd.DataFrame, ohlcv_df: pd.DataFrame, run_id: str
+    news_df: pd.DataFrame,
+    ohlcv_df: pd.DataFrame,
+    run_id: str,
+    as_of_date: str | None = None,
 ) -> List[dict]:
     """Score all symbols and upsert the results.
 
     The upsert is keyed on (symbol, date), so re-running for the same trading
     day -- an Airflow retry or a manual backfill -- overwrites rather than
     duplicating. The task is safe to run more than once.
+
+    ``as_of_date`` (YYYY-MM-DD) scores that specific trading date instead of the
+    latest one in the data (default).
     """
     db.init_db()
 
-    rows = scoring.score(news_df, ohlcv_df)
+    rows = scoring.score(news_df, ohlcv_df, as_of_date=as_of_date)
     for row in rows:
         row["run_id"] = run_id
         logger.info(
@@ -56,7 +62,10 @@ def run_batch(
     with db.session_scope() as session:
         written = db.upsert_pipeline_predictions(session, rows)
 
-    logger.info("run %s: %d predictions written", run_id, written)
+    logger.info(
+        "run %s: %d predictions written (date=%s)",
+        run_id, written, as_of_date or "latest",
+    )
     return rows
 
 
@@ -69,11 +78,16 @@ def main() -> None:
         default="manual",
         help="Pipeline run identifier (use the Airflow dag_run_id)",
     )
+    parser.add_argument(
+        "--date",
+        default=None,
+        help="Trading date to score (YYYY-MM-DD). Default: latest date in the data.",
+    )
     args = parser.parse_args()
 
     news_df = pd.read_csv(args.news)
     ohlcv_df = pd.read_csv(args.ohlcv)
-    run_batch(news_df, ohlcv_df, run_id=args.run_id)
+    run_batch(news_df, ohlcv_df, run_id=args.run_id, as_of_date=args.date)
 
 
 if __name__ == "__main__":

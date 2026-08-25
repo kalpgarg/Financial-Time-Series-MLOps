@@ -52,7 +52,10 @@ OHLCV_LOOKBACK_DAYS = 45
 def _write_single_csv(df, output_path):
     """Write a Spark DataFrame as a single CSV file."""
     tmp_dir = output_path + "_tmp"
-    df.coalesce(1).write.csv(tmp_dir, header=True, mode="overwrite")
+    df.coalesce(1).write.csv(
+        tmp_dir, header=True, mode="overwrite",
+        quote='"', escape='"',
+    )
 
     part_files = [f for f in os.listdir(tmp_dir) if f.startswith("part-")]
     if part_files:
@@ -80,6 +83,7 @@ def main():
         # ── Trim headlines ───────────────────────────────────────────────
         headlines_df = spark.read.csv(
             HEADLINES_CSV, header=True, inferSchema=True, encoding="UTF-8",
+            quote='"', escape='"', multiLine=True,
         )
         headlines_count_before = headlines_df.count()
 

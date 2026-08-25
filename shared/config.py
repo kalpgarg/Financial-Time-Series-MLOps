@@ -16,6 +16,15 @@ load_dotenv(override=True)
 SPARK_MASTER = os.getenv("SPARK_MASTER", "local[*]")
 SPARK_APP_NAME = os.getenv("SPARK_APP_NAME", "FinTSProcessor")
 
+# PySpark needs Java 17+ and must use the same Python for driver & workers.
+_BREW_JDK17 = "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+if not os.getenv("JAVA_HOME") and os.path.isdir(_BREW_JDK17):
+    os.environ["JAVA_HOME"] = _BREW_JDK17
+_VENV_PYTHON = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".venv", "bin", "python")
+if os.path.isfile(_VENV_PYTHON):
+    os.environ.setdefault("PYSPARK_PYTHON", _VENV_PYTHON)
+    os.environ.setdefault("PYSPARK_DRIVER_PYTHON", _VENV_PYTHON)
+
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))

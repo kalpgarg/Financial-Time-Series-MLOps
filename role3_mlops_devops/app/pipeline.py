@@ -169,7 +169,7 @@ def _build_news_features(
     latest_news = pd.DataFrame()
     if not news_df.empty:
         news = news_df.copy()
-        news["published_at"] = pd.to_datetime(news["published_at"], utc=True)
+        news["published_at"] = pd.to_datetime(news["published_at"], utc=True, format="ISO8601")
         news["news_date"] = news["published_at"].dt.tz_localize(None).dt.normalize()
         window_start = latest_date - pd.Timedelta(days=NEWS_WINDOW_DAYS)
         latest_news = news[
@@ -280,7 +280,7 @@ def _build_ohlcv_features(
     OHLCV frame and only filters to the latest date at the very end.
     """
     ohlcv = ohlcv_df.copy()
-    ohlcv["datetime"] = pd.to_datetime(ohlcv["datetime"])
+    ohlcv["datetime"] = pd.to_datetime(ohlcv["datetime"], utc=True).dt.tz_localize(None)
     ohlcv["date"] = ohlcv["datetime"].dt.normalize()
     ohlcv = ohlcv.sort_values(["symbol", "date", "datetime"])
 

@@ -27,6 +27,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
@@ -122,6 +123,35 @@ def _run_shell(cmd: list[str], task_name: str):
         raise RuntimeError(f"{task_name} failed with exit code {result.returncode}")
 
 
+def _csv_summary(path: str, date_col: str | None = None) -> dict:
+    """Return a compact summary of a CSV file for XCom / task logs."""
+    info = {"path": os.path.basename(path), "exists": os.path.exists(path)}
+    if not info["exists"]:
+        return info
+    try:
+        df = pd.read_csv(path, nrows=0)
+        info["columns"] = list(df.columns)
+        row_count = sum(1 for _ in open(path)) - 1
+        info["rows"] = row_count
+        if date_col and date_col in df.columns:
+            full = pd.read_csv(path, usecols=[date_col])
+            info["date_min"] = str(full[date_col].min())
+            info["date_max"] = str(full[date_col].max())
+    except Exception as e:
+        info["error"] = str(e)
+    return info
+
+
+def _print_summary(title: str, summary: dict):
+    """Pretty-print a task summary to the Airflow task log."""
+    print(f"\n{'='*60}")
+    print(f"  {title}")
+    print(f"{'='*60}")
+    for k, v in summary.items():
+        print(f"  {k}: {v}")
+    print(f"{'='*60}\n")
+
+
 # ── DAG definition ───────────────────────────────────────────────────────────
 with DAG(
     dag_id="financial_ts_inference_pipeline",
@@ -135,10 +165,18 @@ with DAG(
 
     # ── Task 1: Scrape headlines → CSV ───────────────────────────────────────
     def scrape_headlines(**context):
+        csv_path = os.path.join(PROJECT_ROOT, "data", "stock_news", "headlines.csv")
+        before = _csv_summary(csv_path, "published_at")
         if SKIP_SCRAPERS:
             print("SKIP_SCRAPERS=1: skipping headline scraper")
-            return
-        _run_module("role1_data_engineering.scrapers.headline_scraper")
+        else:
+            _run_module("role1_data_engineering.scrapers.headline_scraper")
+        after = _csv_summary(csv_path, "published_at")
+        summary = {"before_rows": before.get("rows", 0), "after_rows": after.get("rows", 0),
+                   "new_rows": after.get("rows", 0) - before.get("rows", 0),
+                   "date_range": f"{after.get('date_min','')} → {after.get('date_max','')}"}
+        _print_summary("Scrape Headlines", summary)
+        return summary
 
     task_scrape_headlines = PythonOperator(
         task_id="scrape_headlines",
@@ -148,10 +186,18 @@ with DAG(
 
     # ── Task 2: Scrape OHLCV data → CSV ─────────────────────────────────────
     def scrape_ohlcv(**context):
+        csv_path = os.path.join(PROJECT_ROOT, "data", "merged_ohlc_15min.csv")
+        before = _csv_summary(csv_path, "datetime")
         if SKIP_SCRAPERS:
             print("SKIP_SCRAPERS=1: skipping OHLCV scraper")
-            return
-        _run_module("role1_data_engineering.scrapers.ohlc_scraper")
+        else:
+            _run_module("role1_data_engineering.scrapers.ohlc_scraper")
+        after = _csv_summary(csv_path, "datetime")
+        summary = {"before_rows": before.get("rows", 0), "after_rows": after.get("rows", 0),
+                   "new_rows": after.get("rows", 0) - before.get("rows", 0),
+                   "date_range": f"{after.get('date_min','')} → {after.get('date_max','')}"}
+        _print_summary("Scrape OHLCV", summary)
+        return summary
 
     task_scrape_ohlcv = PythonOperator(
         task_id="scrape_ohlcv",
@@ -161,10 +207,19 @@ with DAG(
 
     # ── Task 3: Scrape NSE F&O pre-open data ────────────────────────────────
     def scrape_preopen(**context):
+        import glob
+        preopen_dir = os.path.join(PROJECT_ROOT, "data", "preopen_csv")
+        before_count = len(glob.glob(os.path.join(preopen_dir, "*.csv")))
         if SKIP_SCRAPERS:
             print("SKIP_SCRAPERS=1: skipping pre-open scraper")
-            return
-        _run_module("role1_data_engineering.scrapers.nse_preopen_scraper")
+        else:
+            _run_module("role1_data_engineering.scrapers.nse_preopen_scraper")
+        after_files = sorted(glob.glob(os.path.join(preopen_dir, "*.csv")))
+        latest = os.path.basename(after_files[-1]) if after_files else "none"
+        summary = {"csv_files_before": before_count, "csv_files_after": len(after_files),
+                   "latest_file": latest}
+        _print_summary("Scrape Pre-Open", summary)
+        return summary
 
     task_scrape_preopen = PythonOperator(
         task_id="scrape_preopen",
@@ -174,12 +229,17 @@ with DAG(
 
     # ── Task 4: Spark — clean headlines → data/headlines.csv ─────────────────
     def spark_clean_headlines(**context):
+        clean_path = os.path.join(PROJECT_ROOT, "data", "headlines.csv")
+        before = _csv_summary(clean_path, "published_at")
         if SKIP_SCRAPERS:
-            # No fresh raw scrape this run; cleaning would read the (absent) raw
-            # data/stock_news/headlines.csv. Use the DVC-pulled clean file as-is.
             print("SKIP_SCRAPERS=1: using existing data/headlines.csv")
-            return
-        _run_module("role1_data_engineering.spark.clean_headlines")
+        else:
+            _run_module("role1_data_engineering.spark.clean_headlines")
+        after = _csv_summary(clean_path, "published_at")
+        summary = {"before_rows": before.get("rows", 0), "after_rows": after.get("rows", 0),
+                   "date_range": f"{after.get('date_min','')} → {after.get('date_max','')}"}
+        _print_summary("Spark Clean Headlines", summary)
+        return summary
 
     task_clean_headlines = PythonOperator(
         task_id="spark_clean_headlines",
@@ -189,12 +249,18 @@ with DAG(
 
     # ── Task 5: Merge pre-open into merged_ohlc_15min.csv ────────────────────
     def spark_merge_preopen(**context):
+        merged_path = os.path.join(PROJECT_ROOT, "data", "merged_ohlc_15min.csv")
+        before = _csv_summary(merged_path, "datetime")
         if SKIP_SCRAPERS:
-            # No fresh pre-open CSV this run; keep the DVC-pulled
-            # data/merged_ohlc_15min.csv as-is.
             print("SKIP_SCRAPERS=1: using existing data/merged_ohlc_15min.csv")
-            return
-        _run_module("role1_data_engineering.spark.merge_preopen")
+        else:
+            _run_module("role1_data_engineering.spark.merge_preopen")
+        after = _csv_summary(merged_path, "datetime")
+        summary = {"before_rows": before.get("rows", 0), "after_rows": after.get("rows", 0),
+                   "new_rows": after.get("rows", 0) - before.get("rows", 0),
+                   "date_range": f"{after.get('date_min','')} → {after.get('date_max','')}"}
+        _print_summary("Spark Merge Pre-Open", summary)
+        return summary
 
     task_merge_preopen = PythonOperator(
         task_id="spark_merge_preopen",
@@ -205,6 +271,15 @@ with DAG(
     # ── Task 6: Trim data for inference ─────────────────────────────────────
     def trim_for_inference(**context):
         _run_module("role1_data_engineering.spark.trim_for_inference")
+        inf_dir = os.path.join(PROJECT_ROOT, "data", "inference")
+        h_summary = _csv_summary(os.path.join(inf_dir, "headlines.csv"), "published_at")
+        o_summary = _csv_summary(os.path.join(inf_dir, "ohlcv_15min.csv"), "datetime")
+        summary = {"headlines_rows": h_summary.get("rows", 0),
+                   "headlines_dates": f"{h_summary.get('date_min','')} → {h_summary.get('date_max','')}",
+                   "ohlcv_rows": o_summary.get("rows", 0),
+                   "ohlcv_dates": f"{o_summary.get('date_min','')} → {o_summary.get('date_max','')}"}
+        _print_summary("Trim for Inference", summary)
+        return summary
 
     task_trim = PythonOperator(
         task_id="trim_for_inference",
@@ -215,6 +290,7 @@ with DAG(
     # ── Task 7: Run inference via Docker ─────────────────────────────────────
     def run_inference(**context):
         run_id = context.get("run_id", context["logical_date"].strftime("%Y%m%d_%H%M"))
+        print(f"Starting inference with run_id={run_id}")
         cmd = [
             "docker", "run", "--rm",
             "--network", INFERENCE_DOCKER_NETWORK,

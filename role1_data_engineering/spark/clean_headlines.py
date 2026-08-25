@@ -77,7 +77,10 @@ def main():
     )
 
     try:
-        raw_df = spark.read.csv(RAW_CSV, header=True, inferSchema=True, encoding="UTF-8")
+        raw_df = spark.read.csv(
+            RAW_CSV, header=True, inferSchema=True, encoding="UTF-8",
+            quote='"', escape='"', multiLine=True,
+        )
 
         row_count = raw_df.count()
         if row_count == 0:
@@ -113,7 +116,10 @@ def main():
 
         # Write to a temp directory, then move the single CSV part file
         tmp_dir = CLEAN_CSV + "_tmp"
-        output_df.coalesce(1).write.csv(tmp_dir, header=True, mode="overwrite")
+        output_df.coalesce(1).write.csv(
+            tmp_dir, header=True, mode="overwrite",
+            quote='"', escape='"',
+        )
 
         # Find the part file and move it to the final path
         part_files = [f for f in os.listdir(tmp_dir) if f.startswith("part-")]

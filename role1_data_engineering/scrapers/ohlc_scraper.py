@@ -148,10 +148,10 @@ def fetch_stock_data(
         logger.warning("No data returned for %s (%s:%s)", stock_name, exchange, symbol)
         return None
 
-    # The returned DF has a datetime index (UTC) and columns: symbol, open, high, low, close, volume
+    # The returned DF has a tz-naive datetime index (already in IST) and columns:
+    # symbol, open, high, low, close, volume.
     df = df.reset_index()
-    # Convert UTC datetime to IST
-    df["datetime"] = pd.to_datetime(df["datetime"]).dt.tz_convert(PROJECT_TZ)
+    df["datetime"] = pd.to_datetime(df["datetime"])
 
     is_intraday = interval != Interval.in_daily
 

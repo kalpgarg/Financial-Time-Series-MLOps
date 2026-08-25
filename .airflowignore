@@ -13,3 +13,12 @@ role2_ml_modeling/notebooks
 shared
 deploy
 main.py
+airflow_home
+.venv
+.git
+.dvc
+^data/
+^models/
+^docs/
+^tests/
+__pycache__
